@@ -162,7 +162,7 @@
     return `<!doctype html><html><head><meta charset="utf-8"></head><body><table><tbody><tr>${cells}</tr></tbody></table></body></html>`;
   }
 
-  async function copyNumbers(values) {
+  async function copyHtmlTable(values) {
     const plainText = values.join("\t");
     const htmlText = makeHtmlTable(values);
     try {
@@ -318,9 +318,9 @@
       input.addEventListener("blur", () => setTimeout(updateInputToolbar, 80));
     });
     document.querySelector("#input-next").addEventListener("click", focusNextInput);
-    document.querySelector("#copy-all").addEventListener("click", () => copyNumbers([...exerciseRow(), ...bodyRow()]));
-    document.querySelector("#copy-exercise").addEventListener("click", () => copyValues(exerciseRow()));
-    document.querySelector("#copy-body").addEventListener("click", () => copyValues(bodyRow()));
+    document.querySelector("#copy-all").addEventListener("click", () => copyHtmlTable([...exerciseRow(), ...bodyRow()]));
+    document.querySelector("#copy-exercise").addEventListener("click", () => copyHtmlTable(exerciseRow().slice(1)));
+    document.querySelector("#copy-body").addEventListener("click", () => copyHtmlTable(bodyRow().slice(1)));
     if (window.visualViewport) {
       window.visualViewport.addEventListener("resize", positionInputToolbar);
       window.visualViewport.addEventListener("scroll", positionInputToolbar);
