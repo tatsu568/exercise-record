@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f6f3">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="運動記録">
+  <meta name="description" content="日々の生活・運動・身体データを記録し、Numbers用にコピーする個人用アプリです。">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+  <title>運動記録</title>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="page-header">
+      <div class="brand-mark" aria-hidden="true">○</div>
+      <div><h1>運動記録</h1><p>生活・運動・身体データ</p></div>
+    </header>
+
+    <section class="card date-card" aria-labelledby="date-heading">
+      <label id="date-heading" for="record-date">日付</label>
+      <input id="record-date" type="date" aria-label="記録する日付">
+    </section>
+
+    <section class="card" aria-labelledby="life-heading">
+      <h2 id="life-heading">生活</h2>
+      <div class="choice-row" role="group" aria-label="勤務区分">
+        <button class="choice" type="button" data-work="出社" aria-pressed="false">出社</button>
+        <button class="choice" type="button" data-work="在宅" aria-pressed="false">在宅</button>
+        <button class="choice" type="button" data-work="休日" aria-pressed="false">休日</button>
+      </div>
+      <label class="toggle-row"><span>子供と動く</span><input id="kids" type="checkbox"><span class="toggle-ui" aria-hidden="true"></span></label>
+    </section>
+
+    <section class="card" aria-labelledby="exercise-heading">
+      <h2 id="exercise-heading">運動</h2>
+      <div class="standing-heading"><label for="standing">スタンディング</label><output id="standing-value" for="standing">10</output></div>
+      <input id="standing" class="range" type="range" min="5" max="20" step="1" value="10">
+      <div class="stepper-row"><span>スクワット</span><div class="stepper"><button type="button" data-step="squat" data-delta="-5" aria-label="スクワットを5回減らす">−</button><output id="squat-value">0回</output><button type="button" data-step="squat" data-delta="5" aria-label="スクワットを5回増やす">＋</button></div></div>
+      <div class="stepper-row"><span>足踏み</span><div class="stepper"><button type="button" data-step="march" data-delta="-1" aria-label="足踏みを1回減らす">−</button><output id="march-value">0回</output><button type="button" data-step="march" data-delta="1" aria-label="足踏みを1回増やす">＋</button></div></div>
+      <div class="stepper-row"><span>プランク</span><div class="stepper"><button type="button" data-step="plank" data-delta="-30" aria-label="プランクを30秒減らす">−</button><output id="plank-value">0秒</output><button type="button" data-step="plank" data-delta="30" aria-label="プランクを30秒増やす">＋</button></div></div>
+    </section>
+
+    <section class="card" aria-labelledby="walk-heading">
+      <h2 id="walk-heading">散歩</h2>
+      <div class="field-row">
+        <label class="field"><span>時間・分</span><span class="input-with-unit"><input id="walk-minutes" type="number" inputmode="numeric" enterkeyhint="next" min="0" step="1" placeholder="—"><span>分</span></span></label>
+        <label class="field"><span>時間・秒</span><span class="input-with-unit"><input id="walk-seconds" type="number" inputmode="numeric" enterkeyhint="next" min="0" max="59" step="1" placeholder="—"><span>秒</span></span></label>
+      </div>
+      <div class="field-row">
+        <label class="field"><span>距離</span><span class="input-with-unit"><input id="distance" type="number" inputmode="decimal" enterkeyhint="next" min="0" step="any" placeholder="—"><span>km</span></span></label>
+        <label class="field"><span>歩数</span><span class="input-with-unit"><input id="walk-steps" type="number" inputmode="numeric" enterkeyhint="done" min="0" step="1" placeholder="—"><span>歩</span></span></label>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="body-heading">
+      <h2 id="body-heading">身体データ</h2>
+      <div class="field-row body-fields">
+        <label class="field"><span>体重</span><span class="input-with-unit"><input id="weight" type="number" inputmode="decimal" enterkeyhint="next" min="0" step="any" placeholder="—"><span>kg</span></span></label>
+        <label class="field"><span>体脂肪率</span><span class="input-with-unit"><input id="body-fat" type="number" inputmode="decimal" enterkeyhint="next" min="0" step="any" placeholder="—"><span>%</span></span></label>
+      </div>
+      <div class="field-row body-fields">
+        <label class="field"><span>基礎代謝</span><span class="input-with-unit"><input id="basal" type="number" inputmode="numeric" enterkeyhint="done" min="0" step="1" placeholder="—"><span>kcal</span></span></label>
+      </div>
+    </section>
+
+    <section class="card copy-card" aria-labelledby="copy-heading">
+      <h2 id="copy-heading">コピー</h2>
+      <button id="copy-all" class="button button-primary" type="button">Numbersにコピー</button>
+      <div class="copy-row"><button id="copy-exercise" class="button button-secondary" type="button">運動データコピー</button><button id="copy-body" class="button button-secondary" type="button">身体データコピー</button></div>
+    </section>
+    <footer><span id="save-status" aria-live="polite">この端末に自動保存されます</span></footer>
+  </main>
+
+  <div id="input-toolbar" class="input-toolbar" aria-label="入力操作" hidden>
+    <button id="input-next" type="button">次へ</button>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="script.js" defer></script>
+</body>
+</html>
