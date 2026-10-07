@@ -37,7 +37,7 @@ py -m http.server 8080 --bind 0.0.0.0
 4. iPhoneのSafariで`http://192.168.1.25:8080`のようにPCのIPv4アドレスを開きます。
 5. Windows Defenderファイアウォールが初回通信を確認した場合は、プライベートネットワーク上でのNode.js通信を許可します。
 
-LAN上のHTTPでも画面とlocalStorageは確認できますが、SafariのクリップボードAPIとService WorkerはHTTPS（またはlocalhost）を必要とする場合があります。HTTPS公開前のLAN確認では、コピーのフォールバック動作も試します。iPhoneホーム画面への追加・オフライン起動はHTTPS公開後に確認してください。
+LAN上のHTTPでも画面とlocalStorageは確認できますが、SafariのAsync Clipboard APIとService WorkerはHTTPS（またはlocalhost）を必要とする場合があります。HTTPでのLAN確認では、`execCommand("copy")`と`copy`イベントの`DataTransfer`を使ったHTML＋プレーンテキストの代替経路を試します。HTTPS公開後にはAsync Clipboard APIの経路も改めて確認してください。iPhoneホーム画面への追加・オフライン起動はHTTPS公開後に確認してください。
 
 ## GitHub PagesでHTTPS公開
 
@@ -116,6 +116,7 @@ GitHub PagesはHTTPSで静的ファイルを配信します。入力値を送る
 - キーボード操作バーは分→秒→距離→歩数、体重→体脂肪率→基礎代謝へ移動し、各グループ末尾で閉じます。
 - コピー列は「運動9列」「身体3列」「全体14列」で、区切り用のタブ区切りテキストを保持します。日付は全体コピーにのみ含み、曜日列はありません。
 - 3種類すべてのコピーで、1行のHTMLテーブルとタブ区切りテキストを一緒にクリップボードへ書き、Numbersが表として受け取れる形式を優先します。運動・身体だけのコピーには日付列を含みません。
+- 運動・身体コピーのHTMLは`table`・`tr`・`td`だけの書式指定なしフラグメントとし、フォント・文字サイズ・太字・罫線・背景色の指定を含めません。Numbers側の貼り付け結果はiPhone実機で確認してください。
 - Clipboard APIが使用できない環境では`execCommand("copy")`へフォールバックし、失敗時はメッセージを表示します。
 - レスポンシブCSSでスマートフォン縦画面の幅、44px以上の主要タップ領域、safe-areaを考慮しています。
 

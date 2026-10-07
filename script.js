@@ -157,14 +157,18 @@
     })[character]);
   }
 
-  function makeHtmlTable(values) {
+  function makeHtmlTable(values, { minimalFormatting = false } = {}) {
     const cells = values.map((value) => `<td>${escapeHtml(value)}</td>`).join("");
+    if (minimalFormatting) {
+      // Keep only table structure: no font, size, weight, border, or background styles.
+      return `<table><tr>${cells}</tr></table>`;
+    }
     return `<!doctype html><html><head><meta charset="utf-8"></head><body><table><tbody><tr>${cells}</tr></tbody></table></body></html>`;
   }
 
-  async function copyHtmlTable(values) {
+  async function copyHtmlTable(values, options = {}) {
     const plainText = values.join("\t");
-    const htmlText = makeHtmlTable(values);
+    const htmlText = makeHtmlTable(values, options);
     try {
       if (window.isSecureContext && navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
         try {
@@ -319,8 +323,8 @@
     });
     document.querySelector("#input-next").addEventListener("click", focusNextInput);
     document.querySelector("#copy-all").addEventListener("click", () => copyHtmlTable([...exerciseRow(), ...bodyRow()]));
-    document.querySelector("#copy-exercise").addEventListener("click", () => copyHtmlTable(exerciseRow().slice(1)));
-    document.querySelector("#copy-body").addEventListener("click", () => copyHtmlTable(bodyRow().slice(1)));
+    document.querySelector("#copy-exercise").addEventListener("click", () => copyHtmlTable(exerciseRow().slice(1), { minimalFormatting: true }));
+    document.querySelector("#copy-body").addEventListener("click", () => copyHtmlTable(bodyRow().slice(1), { minimalFormatting: true }));
     if (window.visualViewport) {
       window.visualViewport.addEventListener("resize", positionInputToolbar);
       window.visualViewport.addEventListener("scroll", positionInputToolbar);
