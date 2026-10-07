@@ -151,6 +151,83 @@
     }
   }
 
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (character) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+    })[character]);
+  }
+
+  function makeHtmlTable(values) {
+    const cells = values.map((value) => `<td>${escapeHtml(value)}</td>`).join("");
+    return `<!doctype html><html><head><meta charset="utf-8"></head><body><table><tbody><tr>${cells}</tr></tbody></table></body></html>`;
+  }
+
+  async function copyNumbers(values) {
+    const plainText = values.join("\t");
+    const htmlText = makeHtmlTable(values);
+    try {
+      if (window.isSecureContext && navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+        try {
+          // Keep both formats in one clipboard item; WebKit prefers the first format.
+          const item = new ClipboardItem({
+            "text/html": new Blob([htmlText], { type: "text/html" }),
+            "text/plain": new Blob([plainText], { type: "text/plain" })
+          });
+          await navigator.clipboard.write([item]);
+          showToast("コピーしました");
+          return;
+        } catch (error) {
+          console.warn("HTML形式のClipboard APIに失敗したため、代替方法を試します。", error);
+        }
+      }
+
+      const legacy = legacyCopyWithHtml(plainText, htmlText);
+      if (legacy.succeeded) {
+        showToast(legacy.htmlWritten ? "コピーしました" : "テキスト形式でコピーしました");
+        return;
+      }
+      if (window.isSecureContext && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(plainText);
+        showToast("テキスト形式でコピーしました");
+        return;
+      }
+      if (legacyCopy(plainText)) {
+        showToast("テキスト形式でコピーしました");
+        return;
+      }
+      throw new Error("clipboard unavailable");
+    } catch (error) {
+      console.error("クリップボードにコピーできませんでした。", error);
+      showToast("コピーできませんでした。ページをHTTPSで開いてください", 3200);
+    }
+  }
+
+  function legacyCopyWithHtml(plainText, htmlText) {
+    const helper = document.createElement("textarea");
+    helper.value = plainText;
+    helper.setAttribute("readonly", "");
+    helper.style.position = "fixed";
+    helper.style.opacity = "0";
+    document.body.append(helper);
+    let htmlWritten = false;
+    helper.addEventListener("copy", (event) => {
+      if (!event.clipboardData) return;
+      try {
+        event.clipboardData.setData("text/html", htmlText);
+        event.clipboardData.setData("text/plain", plainText);
+        event.preventDefault();
+        htmlWritten = true;
+      } catch (error) {
+        console.warn("HTML形式のコピーを利用できません。", error);
+      }
+    });
+    helper.focus();
+    helper.select();
+    const succeeded = document.execCommand("copy");
+    helper.remove();
+    return { succeeded, htmlWritten };
+  }
+
   function legacyCopy(text) {
     const helper = document.createElement("textarea");
     helper.value = text;
@@ -158,6 +235,7 @@
     helper.style.position = "fixed";
     helper.style.opacity = "0";
     document.body.append(helper);
+    helper.focus();
     helper.select();
     const succeeded = document.execCommand("copy");
     helper.remove();
@@ -240,7 +318,7 @@
       input.addEventListener("blur", () => setTimeout(updateInputToolbar, 80));
     });
     document.querySelector("#input-next").addEventListener("click", focusNextInput);
-    document.querySelector("#copy-all").addEventListener("click", () => copyValues([...exerciseRow(), ...bodyRow()]));
+    document.querySelector("#copy-all").addEventListener("click", () => copyNumbers([...exerciseRow(), ...bodyRow()]));
     document.querySelector("#copy-exercise").addEventListener("click", () => copyValues(exerciseRow()));
     document.querySelector("#copy-body").addEventListener("click", () => copyValues(bodyRow()));
     if (window.visualViewport) {

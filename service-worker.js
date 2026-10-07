@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "exercise-record-v1";
+const CACHE_NAME = "exercise-record-v2";
 const APP_FILES = ["./", "./index.html", "./style.css", "./script.js", "./manifest.json", "./icons/icon.svg", "./icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {
