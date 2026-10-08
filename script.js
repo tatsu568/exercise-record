@@ -119,7 +119,6 @@
   function exerciseRow() {
     const work = currentEntry.work;
     return [
-      FIELDS.date.value,
       work === "出社" ? "○" : "",
       work === "在宅" ? "○" : "",
       work === "休日" ? "○" : "",
@@ -133,22 +132,7 @@
   }
 
   function bodyRow() {
-    return [FIELDS.date.value, explicitValue(FIELDS.weight.value), explicitValue(FIELDS.bodyFat.value), explicitValue(FIELDS.basal.value)];
-  }
-
-  async function copyValues(values) {
-    const text = values.join("\t");
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
-      } else if (!legacyCopy(text)) {
-        throw new Error("clipboard unavailable");
-      }
-      showToast("コピーしました");
-    } catch (error) {
-      console.error("クリップボードにコピーできませんでした。", error);
-      showToast("コピーできませんでした。ページをHTTPSで開いてください", 3200);
-    }
+    return [explicitValue(FIELDS.weight.value), explicitValue(FIELDS.bodyFat.value), explicitValue(FIELDS.basal.value)];
   }
 
   function escapeHtml(value) {
@@ -157,18 +141,14 @@
     })[character]);
   }
 
-  function makeHtmlTable(values, { minimalFormatting = false } = {}) {
+  function makeHtmlTable(values) {
     const cells = values.map((value) => `<td>${escapeHtml(value)}</td>`).join("");
-    if (minimalFormatting) {
-      // Keep only table structure: no font, size, weight, border, or background styles.
-      return `<table><tr>${cells}</tr></table>`;
-    }
     return `<!doctype html><html><head><meta charset="utf-8"></head><body><table><tbody><tr>${cells}</tr></tbody></table></body></html>`;
   }
 
-  async function copyHtmlTable(values, options = {}) {
+  async function copyHtmlTable(values) {
     const plainText = values.join("\t");
-    const htmlText = makeHtmlTable(values, options);
+    const htmlText = makeHtmlTable(values);
     try {
       if (window.isSecureContext && navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
         try {
@@ -322,9 +302,8 @@
       input.addEventListener("blur", () => setTimeout(updateInputToolbar, 80));
     });
     document.querySelector("#input-next").addEventListener("click", focusNextInput);
-    document.querySelector("#copy-all").addEventListener("click", () => copyHtmlTable([...exerciseRow(), ...bodyRow()]));
-    document.querySelector("#copy-exercise").addEventListener("click", () => copyHtmlTable(exerciseRow().slice(1), { minimalFormatting: true }));
-    document.querySelector("#copy-body").addEventListener("click", () => copyHtmlTable(bodyRow().slice(1), { minimalFormatting: true }));
+    document.querySelector("#copy-exercise").addEventListener("click", () => copyHtmlTable(exerciseRow()));
+    document.querySelector("#copy-body").addEventListener("click", () => copyHtmlTable(bodyRow()));
     if (window.visualViewport) {
       window.visualViewport.addEventListener("resize", positionInputToolbar);
       window.visualViewport.addEventListener("scroll", positionInputToolbar);
