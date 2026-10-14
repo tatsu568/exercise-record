@@ -17,6 +17,7 @@
   const INPUT_ORDER = [FIELDS.walkMinutes, FIELDS.walkSeconds, FIELDS.distance, FIELDS.walkSteps, FIELDS.weight, FIELDS.bodyFat, FIELDS.basal];
   let entries = readEntries();
   let currentEntry = { ...DEFAULT_ENTRY };
+  let activeDate = "";
   let toastTimer;
   let saveTimer;
   let lastFocusedInput = null;
@@ -40,9 +41,29 @@
   }
 
   function loadDate(date) {
+    activeDate = date;
     currentEntry = { ...DEFAULT_ENTRY, ...(entries[date] || {}) };
     FIELDS.date.value = date;
     renderEntry();
+  }
+
+  function switchDate(date) {
+    if (!date) return;
+    if (date === activeDate) {
+      FIELDS.date.value = activeDate;
+      return;
+    }
+    // Persist the currently displayed entry under its original date before loading another.
+    saveCurrentEntry();
+    loadDate(date);
+  }
+
+  function moveDateByDays(dayDelta) {
+    const [year, month, day] = (FIELDS.date.value || activeDate).split("-").map(Number);
+    if (![year, month, day].every(Number.isFinite)) return;
+    // Use local noon so daylight-saving transitions cannot shift the calendar date.
+    const date = new Date(year, month - 1, day + dayDelta, 12);
+    switchDate(localDateString(date));
   }
 
   function renderEntry() {
@@ -84,7 +105,7 @@
 
   function saveCurrentEntry() {
     captureForm();
-    entries[FIELDS.date.value] = { ...currentEntry };
+    entries[activeDate || FIELDS.date.value] = { ...currentEntry };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
       const status = document.querySelector("#save-status");
@@ -98,7 +119,11 @@
   }
 
   function updateStepperButtons() {
-    document.querySelectorAll('[data-step="march"][data-delta="1"]').forEach((button) => { button.disabled = currentEntry.march >= 2; });
+    document.querySelectorAll("[data-step]").forEach((button) => {
+      const key = button.dataset.step;
+      const nextValue = currentEntry[key] + Number(button.dataset.delta);
+      button.disabled = nextValue < 0 || (key === "march" && nextValue > 2);
+    });
   }
 
   function circleCount(count) { return count > 0 ? "○".repeat(count) : ""; }
@@ -276,7 +301,9 @@
   }
 
   function connectEvents() {
-    FIELDS.date.addEventListener("change", () => loadDate(FIELDS.date.value || localDateString()));
+    FIELDS.date.addEventListener("change", () => switchDate(FIELDS.date.value || localDateString()));
+    document.querySelector("#previous-day").addEventListener("click", () => moveDateByDays(-1));
+    document.querySelector("#next-day").addEventListener("click", () => moveDateByDays(1));
     document.querySelectorAll("[data-work]").forEach((button) => button.addEventListener("click", () => {
       currentEntry.work = currentEntry.work === button.dataset.work ? "" : button.dataset.work;
       renderEntry(); saveCurrentEntry();

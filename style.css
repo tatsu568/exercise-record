@@ -23,9 +23,11 @@ button { touch-action: manipulation; }
 .brand-mark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; color: white; background: var(--accent); font-size: 26px; font-weight: 700; }
 .card { margin-bottom: 10px; padding: 14px; border: 1px solid rgba(32,37,34,.035); border-radius: 16px; background: var(--surface); box-shadow: 0 2px 8px rgba(31,47,37,.035); }
 .card h2 { margin: 0 0 10px; font-size: 17px; line-height: 1.3; }
-.date-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.date-card { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .date-card label { font-weight: 650; }
-.date-card input { min-height: 44px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: white; font-size: 15px; }
+.date-controls { display: flex; min-width: 0; align-items: center; gap: 6px; }
+.date-card input { width: 142px; min-width: 0; min-height: 44px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: white; font-size: 15px; }
+.date-step { min-width: 48px; min-height: 44px; padding: 0 7px; border: 1px solid var(--line); border-radius: 11px; background: #fff; color: var(--accent); font-size: 13px; font-weight: 650; white-space: nowrap; }
 .choice-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
 .choice { min-height: 48px; border: 1px solid var(--line); border-radius: 11px; background: #fff; color: var(--ink); font-weight: 650; }
 .choice[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: white; }
@@ -40,9 +42,17 @@ button { touch-action: manipulation; }
 .standing-heading output { min-width: 42px; padding: 4px 10px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); text-align: center; font-size: 18px; font-weight: 750; font-variant-numeric: tabular-nums; }
 .range { width: 100%; height: 36px; margin: 7px 0 8px; accent-color: var(--accent); }
 .stepper-row { display: flex; align-items: center; justify-content: space-between; min-height: 54px; border-top: 1px solid #eff1ee; font-weight: 550; }
-.stepper { display: flex; align-items: center; gap: 9px; }
-.stepper button { width: 46px; height: 44px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--accent); font-size: 25px; line-height: 1; font-weight: 500; }
-.stepper output { min-width: 55px; text-align: center; font-weight: 650; font-variant-numeric: tabular-nums; }
+.stepper { display: flex; align-items: center; gap: 7px; }
+.stepper-group { display: flex; align-items: center; gap: 4px; }
+.stepper button { width: 42px; min-height: 44px; padding: 0 2px; border: 1px solid var(--line); border-radius: 11px; background: #fff; color: var(--accent); font-size: 14px; line-height: 1; font-weight: 650; white-space: nowrap; }
+.stepper button.stepper-large { width: 46px; border-color: #cfddd3; background: var(--accent-soft); }
+.stepper button:disabled { opacity: .42; }
+.stepper output { min-width: 48px; text-align: center; font-weight: 650; font-variant-numeric: tabular-nums; }
+.stepper-march { width: 246px; flex: 0 0 246px; justify-content: flex-start; gap: 0; }
+.stepper-march .stepper-spacer { width: 46px; flex: 0 0 46px; }
+.stepper-march button[data-step="march"][data-delta="-1"] { margin-left: 4px; }
+.stepper-march output, .stepper-march button[data-delta="1"] { margin-left: 7px; }
+.stepper-march .stepper-spacer:last-child { margin-left: 4px; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
 .field-row:first-of-type { margin-top: 0; }
 .field { display: flex; min-width: 0; flex-direction: column; gap: 6px; color: var(--muted); font-size: 13px; font-weight: 550; }
@@ -60,4 +70,5 @@ footer { padding: 2px 2px 4px; color: var(--muted); text-align: center; font-siz
 .input-toolbar[hidden] { display: none; }
 .input-toolbar button { min-width: 82px; min-height: 42px; border: 0; border-radius: 10px; background: var(--accent); color: white; font-weight: 700; }
 @media (min-width: 520px) { .app-shell { padding-top: 24px; } .body-fields { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 380px) { .date-card { align-items: stretch; flex-direction: column; } .date-controls { width: 100%; } .date-controls input { flex: 1; width: 1px; } .stepper-row { align-items: flex-start; flex-direction: column; justify-content: center; gap: 5px; padding: 7px 0; } .stepper { width: 100%; justify-content: space-between; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }

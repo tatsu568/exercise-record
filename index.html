@@ -23,7 +23,11 @@
 
     <section class="card date-card" aria-labelledby="date-heading">
       <label id="date-heading" for="record-date">日付</label>
-      <input id="record-date" type="date" aria-label="記録する日付">
+      <div class="date-controls">
+        <button class="date-step" id="previous-day" type="button" aria-label="前へ">前</button>
+        <input id="record-date" type="date" aria-label="記録する日付">
+        <button class="date-step" id="next-day" type="button" aria-label="次へ">次</button>
+      </div>
     </section>
 
     <section class="card" aria-labelledby="life-heading">
@@ -40,9 +44,9 @@
       <h2 id="exercise-heading">運動</h2>
       <div class="standing-heading"><label for="standing">スタンディング</label><output id="standing-value" for="standing">10</output></div>
       <input id="standing" class="range" type="range" min="5" max="20" step="1" value="10">
-      <div class="stepper-row"><span>スクワット</span><div class="stepper"><button type="button" data-step="squat" data-delta="-5" aria-label="スクワットを5回減らす">−</button><output id="squat-value">0回</output><button type="button" data-step="squat" data-delta="5" aria-label="スクワットを5回増やす">＋</button></div></div>
-      <div class="stepper-row"><span>足踏み</span><div class="stepper"><button type="button" data-step="march" data-delta="-1" aria-label="足踏みを1回減らす">−</button><output id="march-value">0回</output><button type="button" data-step="march" data-delta="1" aria-label="足踏みを1回増やす">＋</button></div></div>
-      <div class="stepper-row"><span>プランク</span><div class="stepper"><button type="button" data-step="plank" data-delta="-30" aria-label="プランクを30秒減らす">−</button><output id="plank-value">0秒</output><button type="button" data-step="plank" data-delta="30" aria-label="プランクを30秒増やす">＋</button></div></div>
+      <div class="stepper-row"><span>スクワット</span><div class="stepper"><div class="stepper-group"><button class="stepper-large" type="button" data-step="squat" data-delta="-10" aria-label="スクワットを10回減らす">−10</button><button type="button" data-step="squat" data-delta="-5" aria-label="スクワットを5回減らす">−5</button></div><output id="squat-value">0回</output><div class="stepper-group"><button type="button" data-step="squat" data-delta="5" aria-label="スクワットを5回増やす">＋5</button><button class="stepper-large" type="button" data-step="squat" data-delta="10" aria-label="スクワットを10回増やす">＋10</button></div></div></div>
+      <div class="stepper-row"><span>足踏み</span><div class="stepper stepper-march"><span class="stepper-spacer" aria-hidden="true"></span><button type="button" data-step="march" data-delta="-1" aria-label="足踏みを1回減らす">−</button><output id="march-value">0回</output><button type="button" data-step="march" data-delta="1" aria-label="足踏みを1回増やす">＋</button><span class="stepper-spacer" aria-hidden="true"></span></div></div>
+      <div class="stepper-row"><span>プランク</span><div class="stepper"><div class="stepper-group"><button class="stepper-large" type="button" data-step="plank" data-delta="-60" aria-label="プランクを60秒減らす">−60</button><button type="button" data-step="plank" data-delta="-30" aria-label="プランクを30秒減らす">−30</button></div><output id="plank-value">0秒</output><div class="stepper-group"><button type="button" data-step="plank" data-delta="30" aria-label="プランクを30秒増やす">＋30</button><button class="stepper-large" type="button" data-step="plank" data-delta="60" aria-label="プランクを60秒増やす">＋60</button></div></div></div>
     </section>
 
     <section class="card" aria-labelledby="walk-heading">
