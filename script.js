@@ -130,15 +130,99 @@
   function explicitValue(value) { return value === "" ? "" : value; }
 
   function walkText() {
+    return walkTextFromValues(FIELDS.walkMinutes.value, FIELDS.walkSeconds.value, FIELDS.distance.value, FIELDS.walkSteps.value);
+  }
+
+  function walkTextFromValues(walkMinutes, walkSeconds, walkDistance, walkSteps) {
     const parts = [];
-    const minutes = explicitValue(FIELDS.walkMinutes.value);
-    const seconds = explicitValue(FIELDS.walkSeconds.value);
+    const minutes = explicitValue(walkMinutes);
+    const seconds = explicitValue(walkSeconds);
     if (minutes !== "" || seconds !== "") parts.push(`${minutes === "" ? "" : `${minutes}分`}${seconds === "" ? "" : `${seconds}秒`}`);
-    const distance = explicitValue(FIELDS.distance.value);
+    const distance = explicitValue(walkDistance);
     if (distance !== "") parts.push(`${distance}km`);
-    const steps = explicitValue(FIELDS.walkSteps.value);
+    const steps = explicitValue(walkSteps);
     if (steps !== "") parts.push(`${steps}歩`);
     return parts.join(" ");
+  }
+
+  function previousWeekDates(dateKey) {
+    const [year, month, day] = dateKey.split("-").map(Number);
+    const selected = new Date(year, month - 1, day, 12);
+    if (!Number.isFinite(selected.getTime()) || localDateString(selected) !== dateKey) {
+      throw new Error("日付を読み取れませんでした");
+    }
+    const daysSinceMonday = (selected.getDay() + 6) % 7;
+    const previousMonday = new Date(year, month - 1, day - daysSinceMonday - 7, 12);
+    return Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(previousMonday.getFullYear(), previousMonday.getMonth(), previousMonday.getDate() + index, 12);
+      return localDateString(date);
+    });
+  }
+
+  function formatWeeklyDate(dateKey, includeYear) {
+    const [year, month, day] = dateKey.split("-").map(Number);
+    return includeYear ? `${year}/${month}/${day}` : `${month}/${day}`;
+  }
+
+  function weeklyExerciseRow(entry) {
+    const work = entry.work;
+    return [
+      work === "出社" ? "○" : "",
+      work === "在宅" ? "○" : "",
+      work === "休日" ? "○" : "",
+      entry.kids ? "○" : "",
+      String(clampNumber(entry.standing, 5, 20, 10)),
+      circleCount(Number(entry.squat || 0) / 5),
+      circleCount(Number(entry.march || 0)),
+      circleCount(Number(entry.plank || 0) / 30),
+      walkTextFromValues(entry.walkMinutes ?? "", entry.walkSeconds ?? "", entry.distance ?? "", entry.walkSteps ?? "")
+    ];
+  }
+
+  function weeklyCopyText(selectedDate) {
+    // Read directly from storage so missing dates remain distinct from default-valued entries.
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const storedEntries = raw ? JSON.parse(raw) : {};
+    if (!storedEntries || typeof storedEntries !== "object" || Array.isArray(storedEntries)) {
+      throw new Error("保存データの形式を読み取れませんでした");
+    }
+
+    const dates = previousWeekDates(selectedDate);
+    const includeYear = dates[0].slice(0, 4) !== dates[6].slice(0, 4);
+    const headers = ["日付", "出社", "在宅", "休日", "子供と動く", "スタンディング", "スクワット", "足踏み", "プランク", "散歩"];
+    const missingDates = [];
+    const rows = dates.map((date) => {
+      const stored = Object.prototype.hasOwnProperty.call(storedEntries, date) ? storedEntries[date] : null;
+      const isRecorded = stored && typeof stored === "object" && !Array.isArray(stored);
+      const displayDate = formatWeeklyDate(date, includeYear);
+      if (!isRecorded) {
+        missingDates.push(displayDate);
+        return [displayDate, "", "", "", "", "", "", "", "", ""];
+      }
+      return [displayDate, ...weeklyExerciseRow({ ...DEFAULT_ENTRY, ...stored })];
+    });
+    const lines = [headers.join("\t"), ...rows.map((row) => row.join("\t"))];
+    if (missingDates.length) lines.push("", `未記録日：${missingDates.join("、")}`);
+    return lines.join("\n");
+  }
+
+  async function copyWeeklyExercise() {
+    try {
+      const text = weeklyCopyText(FIELDS.date.value || activeDate);
+      if (window.isSecureContext && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        showToast("コピーしました");
+        return;
+      }
+      if (legacyCopy(text)) {
+        showToast("テキスト形式でコピーしました");
+        return;
+      }
+      throw new Error("clipboard unavailable");
+    } catch (error) {
+      console.error("週間運動データをコピーできませんでした。", error);
+      showToast("コピーできませんでした。保存データまたはクリップボードを確認してください", 3200);
+    }
   }
 
   function exerciseRow() {
@@ -331,6 +415,7 @@
     document.querySelector("#input-next").addEventListener("click", focusNextInput);
     document.querySelector("#copy-exercise").addEventListener("click", () => copyHtmlTable(exerciseRow()));
     document.querySelector("#copy-body").addEventListener("click", () => copyHtmlTable(bodyRow()));
+    document.querySelector("#copy-weekly").addEventListener("click", copyWeeklyExercise);
     if (window.visualViewport) {
       window.visualViewport.addEventListener("resize", positionInputToolbar);
       window.visualViewport.addEventListener("scroll", positionInputToolbar);
