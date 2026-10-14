@@ -166,8 +166,7 @@
   }
 
   function updateWeeklyPeriod(selectedDate) {
-    const dates = previousWeekDates(selectedDate);
-    const includeYear = dates[0].slice(0, 4) !== dates[6].slice(0, 4);
+    const { dates, includeYear } = weeklyDateRange(selectedDate);
     const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
     const labels = dates.filter((_, index) => index === 0 || index === 6).map((dateKey) => {
       const [year, month, day] = dateKey.split("-").map(Number);
@@ -200,8 +199,7 @@
       throw new Error("保存データの形式を読み取れませんでした");
     }
 
-    const dates = previousWeekDates(selectedDate);
-    const includeYear = dates[0].slice(0, 4) !== dates[6].slice(0, 4);
+    const { dates, includeYear } = weeklyDateRange(selectedDate);
     const headers = ["日付", "出社", "在宅", "休日", "子供と動く", "スタンディング", "スクワット", "足踏み", "プランク", "散歩"];
     const missingDates = [];
     const rows = dates.map((date) => {
@@ -217,6 +215,63 @@
     const lines = [headers.join("\t"), ...rows.map((row) => row.join("\t"))];
     if (missingDates.length) lines.push("", `未記録日：${missingDates.join("、")}`);
     return lines.join("\n");
+  }
+
+  function weeklyDateRange(selectedDate) {
+    const dates = previousWeekDates(selectedDate);
+    return { dates, includeYear: dates[0].slice(0, 4) !== dates[6].slice(0, 4) };
+  }
+
+  function storedBodyValue(value) {
+    return value === "" || value === null || value === undefined ? "" : String(value);
+  }
+
+  function weeklyBodyCopyText(selectedDate) {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const storedEntries = raw ? JSON.parse(raw) : {};
+    if (!storedEntries || typeof storedEntries !== "object" || Array.isArray(storedEntries)) {
+      throw new Error("保存データの形式を読み取れませんでした");
+    }
+
+    const { dates, includeYear } = weeklyDateRange(selectedDate);
+    let latestRecord = null;
+    for (const date of dates) {
+      const entry = Object.prototype.hasOwnProperty.call(storedEntries, date) ? storedEntries[date] : null;
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const hasBodyData = [entry.weight, entry.bodyFat, entry.basal]
+        .some((value) => value !== "" && value !== null && value !== undefined);
+      if (hasBodyData) latestRecord = { date, entry };
+    }
+
+    if (!latestRecord) return "対象期間に身体データはありません";
+    return [
+      ["日付", "体重", "体脂肪率", "基礎代謝"].join("\t"),
+      [
+        formatWeeklyDate(latestRecord.date, includeYear),
+        storedBodyValue(latestRecord.entry.weight),
+        storedBodyValue(latestRecord.entry.bodyFat),
+        storedBodyValue(latestRecord.entry.basal)
+      ].join("\t")
+    ].join("\n");
+  }
+
+  async function copyWeeklyBody() {
+    try {
+      const text = weeklyBodyCopyText(FIELDS.date.value || activeDate);
+      if (window.isSecureContext && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        showToast("コピーしました");
+        return;
+      }
+      if (legacyCopy(text)) {
+        showToast("テキスト形式でコピーしました");
+        return;
+      }
+      throw new Error("clipboard unavailable");
+    } catch (error) {
+      console.error("週間身体データをコピーできませんでした。", error);
+      showToast("コピーできませんでした。保存データまたはクリップボードを確認してください", 3200);
+    }
   }
 
   async function copyWeeklyExercise() {
@@ -429,6 +484,7 @@
     document.querySelector("#copy-exercise").addEventListener("click", () => copyHtmlTable(exerciseRow()));
     document.querySelector("#copy-body").addEventListener("click", () => copyHtmlTable(bodyRow()));
     document.querySelector("#copy-weekly").addEventListener("click", copyWeeklyExercise);
+    document.querySelector("#copy-weekly-body").addEventListener("click", copyWeeklyBody);
     if (window.visualViewport) {
       window.visualViewport.addEventListener("resize", positionInputToolbar);
       window.visualViewport.addEventListener("scroll", positionInputToolbar);

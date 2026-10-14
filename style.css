@@ -61,9 +61,10 @@ button { touch-action: manipulation; }
 .input-with-unit input::placeholder { color: #b6beb8; }
 .copy-card { margin-top: 3px; }
 .button { min-height: 52px; padding: 10px 12px; border-radius: 12px; font-weight: 700; }
-.copy-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 9px; }
+.copy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 9px; }
+.copy-grid .button { width: 100%; min-width: 0; min-height: 52px; height: 52px; padding: 6px 4px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 13px; line-height: 1.2; overflow-wrap: anywhere; }
 .button-secondary { border: 1px solid #cfdad2; background: #f7faf7; color: var(--accent); font-size: 13px; }
-.button-weekly { width: 100%; margin-top: 9px; border: 1px solid var(--accent); background: var(--accent); color: white; font-size: 14px; }
+.button-weekly, .button-weekly-body { border: 1px solid var(--accent); background: var(--accent); color: white; }
 .weekly-period { margin: 6px 2px 0; color: var(--muted); text-align: center; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 footer { padding: 2px 2px 4px; color: var(--muted); text-align: center; font-size: 12px; }
 .toast { position: fixed; z-index: 10; top: max(12px, env(safe-area-inset-top)); left: 50%; padding: 11px 17px; border: 1px solid #ffffff80; border-radius: 999px; background: #25372feF; color: white; box-shadow: 0 5px 18px #0002; font-size: 14px; font-weight: 650; opacity: 0; pointer-events: none; transform: translate(-50%, -8px); transition: opacity .18s ease, transform .18s ease; white-space: nowrap; }
