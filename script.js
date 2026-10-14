@@ -45,6 +45,7 @@
     currentEntry = { ...DEFAULT_ENTRY, ...(entries[date] || {}) };
     FIELDS.date.value = date;
     renderEntry();
+    updateWeeklyPeriod(date);
   }
 
   function switchDate(date) {
@@ -162,6 +163,18 @@
   function formatWeeklyDate(dateKey, includeYear) {
     const [year, month, day] = dateKey.split("-").map(Number);
     return includeYear ? `${year}/${month}/${day}` : `${month}/${day}`;
+  }
+
+  function updateWeeklyPeriod(selectedDate) {
+    const dates = previousWeekDates(selectedDate);
+    const includeYear = dates[0].slice(0, 4) !== dates[6].slice(0, 4);
+    const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
+    const labels = dates.filter((_, index) => index === 0 || index === 6).map((dateKey) => {
+      const [year, month, day] = dateKey.split("-").map(Number);
+      const weekday = weekdays[new Date(year, month - 1, day, 12).getDay()];
+      return `${formatWeeklyDate(dateKey, includeYear)}（${weekday}）`;
+    });
+    document.querySelector("#weekly-period").textContent = `対象期間：${labels[0]}〜${labels[1]}`;
   }
 
   function weeklyExerciseRow(entry) {
