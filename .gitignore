@@ -1,0 +1,3 @@
+# Personal Numbers source files and validation artifacts must stay local.
+/private-numbers/
+/private-validation/
