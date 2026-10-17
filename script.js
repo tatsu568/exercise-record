@@ -232,7 +232,7 @@
         const file = new File([blob], filename, { type: "application/json" });
         if (navigator.canShare({ files: [file] })) {
           try {
-            await navigator.share({ files: [file], title: "運動記録バックアップ" });
+            await navigator.share({ files: [file] });
             showToast("共有を終了しました。ファイルに保存されたことを確認してください", 4000);
             return;
           } catch (error) {
