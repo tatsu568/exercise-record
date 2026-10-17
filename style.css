@@ -69,6 +69,30 @@ button { touch-action: manipulation; }
 .backup-actions { margin-top: 13px; padding-top: 11px; border-top: 1px solid var(--line); }
 .backup-button { width: 100%; min-height: 48px; border: 1px solid #cfdad2; background: #f7faf7; color: var(--accent); font-size: 14px; }
 .backup-note { margin: 6px 2px 0; color: var(--muted); text-align: center; font-size: 11px; line-height: 1.4; }
+.entry-fields { min-width: 0; padding: 0; margin: 0; border: 0; }
+.entry-fields:disabled { opacity: .65; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.backup-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.backup-grid .button { min-height: 52px; padding: 6px 4px; font-size: 13px; overflow-wrap: anywhere; }
+#restore-panel[hidden], #restore-preview[hidden], #restore-no-changes[hidden] { display: none; }
+.restore-status, .restore-help, .restore-warnings { font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.restore-status:empty { display: none; }
+.restore-status[data-error="true"] { color: #a32626; font-weight: 600; }
+.restore-summary { padding: 10px; border-radius: 10px; background: var(--accent-soft); font-size: 13px; white-space: pre-line; overflow-wrap: anywhere; }
+.restore-warnings { padding-left: 20px; }
+.restore-conflict { min-width: 0; margin: 10px 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.restore-conflict summary { min-height: 44px; padding: 8px 0; font-weight: 650; overflow-wrap: anywhere; cursor: pointer; }
+.restore-diff { padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.restore-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.restore-values span, .restore-values code { display: block; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.restore-values span { color: var(--muted); }
+.restore-choice { display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
+.restore-choice select { width: 100%; min-width: 0; min-height: 48px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); font: inherit; font-size: 16px; }
+.restore-confirm { display: flex; gap: 8px; align-items: center; min-height: 52px; margin: 8px 0; font-size: 13px; }
+.restore-confirm input { flex: 0 0 22px; width: 22px; height: 22px; accent-color: var(--accent); }
+.restore-apply { width: 100%; border: 1px solid var(--accent); background: var(--accent); color: white; }
+#restore-cancel { margin-top: 10px; }
+.backup-actions button:disabled { opacity: .45; }
 footer { padding: 2px 2px 4px; color: var(--muted); text-align: center; font-size: 12px; }
 .toast { position: fixed; z-index: 10; top: max(12px, env(safe-area-inset-top)); left: 50%; padding: 11px 17px; border: 1px solid #ffffff80; border-radius: 999px; background: #25372feF; color: white; box-shadow: 0 5px 18px #0002; font-size: 14px; font-weight: 650; opacity: 0; pointer-events: none; transform: translate(-50%, -8px); transition: opacity .18s ease, transform .18s ease; white-space: nowrap; }
 .toast.visible { opacity: 1; transform: translate(-50%, 0); }

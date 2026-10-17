@@ -21,6 +21,8 @@
       <div><h1>運動記録</h1><p>生活・運動・身体データ</p></div>
     </header>
 
+    <fieldset id="entry-fields" class="entry-fields">
+    <legend class="visually-hidden">日々の記録</legend>
     <section class="card date-card" aria-labelledby="date-heading">
       <label id="date-heading" for="record-date">日付</label>
       <div class="date-controls">
@@ -72,6 +74,7 @@
       </div>
     </section>
 
+    </fieldset>
     <section class="card copy-card" aria-labelledby="copy-heading">
       <h2 id="copy-heading">コピー</h2>
       <div class="copy-grid">
@@ -82,8 +85,30 @@
       </div>
       <p id="weekly-period" class="weekly-period" aria-live="polite"></p>
       <div class="backup-actions">
+        <div class="backup-grid">
         <button id="backup-export" class="button backup-button" type="button">バックアップ保存</button>
+        <button id="restore-start" class="button backup-button" type="button">バックアップ復元</button>
+        </div>
         <p class="backup-note">この保存領域にある全日付の記録をJSONファイルに書き出します。</p>
+        <p class="backup-note">復元は内容を確認してから反映します。Safariとホーム画面版では保存領域が異なる場合があります。</p>
+        <input id="restore-file" type="file" accept=".json,application/json" aria-label="復元するJSONバックアップ" hidden>
+        <p id="restore-status" class="restore-status" role="status" aria-live="polite"></p>
+        <div id="restore-panel" hidden>
+          <div id="restore-preview" hidden>
+            <h3>復元内容の確認</h3>
+            <p id="restore-summary" class="restore-summary"></p>
+            <ul id="restore-warnings" class="restore-warnings"></ul>
+            <p class="restore-help">競合は「既存を維持」が初期選択です。置換すると、その日付全体を空欄も含めて置き換えます。値の補完・自動マージは行いません。文字列は引用符付き、空欄は "" で表示します。</p>
+            <div id="restore-conflicts"></div>
+            <p id="restore-totals" class="restore-summary"></p>
+            <p id="restore-no-changes" class="restore-help" hidden>反映する変更はありません。「閉じる・キャンセル」で通常入力に戻れます。</p>
+            <button id="restore-prebackup" class="button backup-button" type="button">① 復元前バックアップを保存</button>
+            <label class="restore-confirm"><input id="restore-backup-confirm" type="checkbox" disabled><span>② 保存された復元前JSONをファイルアプリ等で確認しました</span></label>
+            <label class="restore-confirm"><input id="restore-final-confirm" type="checkbox"><span id="restore-final-label">③ 復元件数と選択内容を確認しました</span></label>
+            <button id="restore-apply" class="button restore-apply" type="button" disabled>確認して復元を実行</button>
+          </div>
+          <button id="restore-cancel" class="button backup-button" type="button">閉じる・キャンセル</button>
+        </div>
       </div>
     </section>
     <footer><span id="save-status" aria-live="polite">この端末に自動保存されます</span></footer>
@@ -93,6 +118,7 @@
     <button id="input-next" type="button">次へ</button>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="record-transfer.js" defer></script>
   <script src="script.js" defer></script>
 </body>
 </html>

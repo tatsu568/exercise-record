@@ -1,7 +1,7 @@
 "use strict";
 
-const CACHE_NAME = "exercise-record-v12";
-const APP_FILES = ["./", "./index.html", "./style.css", "./script.js", "./manifest.json", "./icons/icon.svg", "./icons/apple-touch-icon.png"];
+const CACHE_NAME = "exercise-record-v13";
+const APP_FILES = ["./", "./index.html", "./style.css", "./record-transfer.js", "./script.js", "./manifest.json", "./icons/icon.svg", "./icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_FILES)));

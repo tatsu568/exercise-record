@@ -2,11 +2,7 @@
   "use strict";
 
   const STORAGE_KEY = "exercise-record.entries.v1";
-  const DEFAULT_ENTRY = Object.freeze({
-    work: "", kids: false, standing: 10, squat: 0, march: 0, plank: 0,
-    walkMinutes: "", walkSeconds: "", distance: "", walkSteps: "",
-    weight: "", bodyFat: "", basal: ""
-  });
+  const DEFAULT_ENTRY = RecordTransfer.DEFAULT_ENTRY;
   const FIELDS = {
     date: document.querySelector("#record-date"), kids: document.querySelector("#kids"),
     standing: document.querySelector("#standing"), walkMinutes: document.querySelector("#walk-minutes"),
@@ -16,6 +12,9 @@
   };
   const INPUT_ORDER = [FIELDS.walkMinutes, FIELDS.walkSeconds, FIELDS.distance, FIELDS.walkSteps, FIELDS.weight, FIELDS.bodyFat, FIELDS.basal];
   let storageLoadError = "";
+  let restoreSession = null;
+  let restoreToken = 0;
+  let hasUnsavedChanges = false;
   let entries = readEntries();
   let currentEntry = { ...DEFAULT_ENTRY };
   let activeDate = "";
@@ -31,6 +30,7 @@
   }
 
   function readEntries() {
+    storageLoadError = "";
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored === null) return {};
@@ -44,69 +44,7 @@
   }
 
   function validateRecordsMap(records) {
-    if (!records || typeof records !== "object" || Array.isArray(records)) {
-      throw new Error("全体が日付別レコードのオブジェクトではありません");
-    }
-    assertFiniteJsonNumbers(records, "保存データ");
-
-    const knownTypes = {
-      work: "string", kids: "boolean", standing: "number", squat: "number", march: "number", plank: "number",
-      walkMinutes: "string", walkSeconds: "string", distance: "string", walkSteps: "string",
-      weight: "string", bodyFat: "string", basal: "string"
-    };
-    const validWorkValues = ["", "出社", "在宅", "休日"];
-
-    for (const [date, entry] of Object.entries(records)) {
-      if (!isRealDateKey(date)) throw new Error(`日付キー「${date}」が YYYY-MM-DD 形式の実在日付ではありません`);
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-        throw new Error(`${date} のレコードがオブジェクトではありません`);
-      }
-      for (const [field, expectedType] of Object.entries(knownTypes)) {
-        if (!Object.prototype.hasOwnProperty.call(entry, field)) continue;
-        const value = entry[field];
-        if (typeof value !== expectedType || (expectedType === "number" && !Number.isFinite(value))) {
-          throw new Error(`${date} の ${field} は ${expectedType} 型ではありません`);
-        }
-      }
-      if (Object.prototype.hasOwnProperty.call(entry, "work") && !validWorkValues.includes(entry.work)) {
-        throw new Error(`${date} の work に想定外の値があります`);
-      }
-      const numericConstraints = [
-        ["standing", (value) => Number.isInteger(value) && value >= 5 && value <= 20],
-        ["squat", (value) => Number.isInteger(value) && value >= 0 && value % 5 === 0],
-        ["march", (value) => Number.isInteger(value) && value >= 0 && value <= 2],
-        ["plank", (value) => Number.isInteger(value) && value >= 0 && value % 30 === 0]
-      ];
-      for (const [field, isValid] of numericConstraints) {
-        if (Object.prototype.hasOwnProperty.call(entry, field) && !isValid(entry[field])) {
-          throw new Error(`${date} の ${field} が現行の入力範囲・単位に合いません`);
-        }
-      }
-    }
-    return records;
-  }
-
-  function assertFiniteJsonNumbers(value, path) {
-    if (typeof value === "number" && !Number.isFinite(value)) {
-      throw new Error(`${path} に有限でない数値があります`);
-    }
-    if (Array.isArray(value)) {
-      value.forEach((item, index) => assertFiniteJsonNumbers(item, `${path}[${index}]`));
-    } else if (value && typeof value === "object") {
-      for (const [key, item] of Object.entries(value)) assertFiniteJsonNumbers(item, `${path}.${key}`);
-    }
-  }
-
-  function isRealDateKey(date) {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-    if (!match) return false;
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    if (year < 1 || month < 1 || month > 12) return false;
-    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-    const monthLengths = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    return day >= 1 && day <= monthLengths[month - 1];
+    return RecordTransfer.validateRecordsMap(records);
   }
 
   function loadDate(date) {
@@ -119,6 +57,7 @@
 
   function switchDate(date) {
     if (!date) return;
+    if (restoreSession) { FIELDS.date.value = activeDate; return; }
     if (date === activeDate) {
       FIELDS.date.value = activeDate;
       return;
@@ -129,7 +68,7 @@
       return;
     }
     // Persist the currently displayed entry under its original date before loading another.
-    saveCurrentEntry();
+    if (!saveCurrentEntry()) { FIELDS.date.value = activeDate; return; }
     loadDate(date);
   }
 
@@ -179,14 +118,17 @@
   }
 
   function saveCurrentEntry() {
+    if (restoreSession) return false;
     if (storageLoadError) {
       document.querySelector("#save-status").textContent = "保存データを読み込めないため、自動保存を停止中です";
       return false;
     }
+    hasUnsavedChanges = true;
     captureForm();
     entries[activeDate || FIELDS.date.value] = { ...currentEntry };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+      hasUnsavedChanges = false;
       const status = document.querySelector("#save-status");
       status.textContent = "保存済み";
       clearTimeout(saveTimer);
@@ -234,11 +176,11 @@
           try {
             await navigator.share({ files: [file] });
             showToast("共有を終了しました。ファイルに保存されたことを確認してください", 4000);
-            return;
+            return true;
           } catch (error) {
             if (error.name === "AbortError") {
               showToast("バックアップ保存をキャンセルしました");
-              return;
+              return false;
             }
             throw error;
           }
@@ -257,10 +199,216 @@
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       const count = Object.keys(records).length;
       showToast(count ? "保存操作を開始しました。ダウンロードを確認してください" : "記録0件の保存操作を開始しました。ダウンロードを確認してください", 4000);
+      return true;
     } catch (error) {
       console.error("バックアップを書き出せませんでした。", error);
       showToast(`バックアップを中止しました：${error.message}`, 5000);
+      return false;
     }
+  }
+
+  function setRestoreMessage(message, error = false) {
+    const node = document.querySelector("#restore-status");
+    node.textContent = message;
+    node.dataset.error = String(error);
+  }
+
+  function lockForRestore(locked) {
+    if (locked) {
+      clearTimeout(saveTimer);
+      document.querySelector("#save-status").textContent = "復元の確認中：通常入力を一時停止しています";
+    }
+    document.querySelector("#entry-fields").disabled = locked;
+    document.querySelector("#backup-export").disabled = locked;
+    document.querySelector("#restore-start").disabled = locked;
+    document.querySelector("#input-toolbar").hidden = true;
+  }
+
+  function clearRestoreConfirmations() {
+    document.querySelector("#restore-backup-confirm").checked = false;
+    document.querySelector("#restore-final-confirm").checked = false;
+    document.querySelector("#restore-backup-confirm").disabled = true;
+  }
+
+  function invalidateRestore(message) {
+    if (!restoreSession) return;
+    restoreSession.stale = true;
+    clearRestoreConfirmations();
+    document.querySelector("#restore-prebackup").disabled = true;
+    document.querySelector("#restore-apply").disabled = true;
+    setRestoreMessage(message, true);
+  }
+
+  async function previewBackup(file) {
+    if (!file) return;
+    if (hasUnsavedChanges || storageLoadError) {
+      setRestoreMessage("現在の入力または保存データを安全に確認できません。保存エラーを解消してから復元してください。", true);
+      return;
+    }
+    const token = ++restoreToken;
+    restoreSession = { loading: true, stale: false, choices: {} };
+    lockForRestore(true);
+    document.querySelector("#restore-panel").hidden = false;
+    document.querySelector("#restore-preview").hidden = true;
+    clearRestoreConfirmations();
+    setRestoreMessage("ファイルを読み込んでいます。まだ保存内容は変更していません。");
+    try {
+      const text = await file.text();
+      if (token !== restoreToken) return;
+      const backup = RecordTransfer.parseBackup(text);
+      const plan = RecordTransfer.createPlan(localStorage.getItem(STORAGE_KEY), backup.records);
+      restoreSession = { plan, backup, choices: {}, stale: false, backupPrepared: false };
+      renderRestorePreview();
+    } catch (error) {
+      if (token !== restoreToken) return;
+      restoreSession = { stale: true };
+      setRestoreMessage(`エラー1件：${error.message || "ファイルを読み取れませんでした"}。復元全体を停止しました。`, true);
+    }
+  }
+
+  function restoreNode(tag, text, className) {
+    const node = document.createElement(tag);
+    if (text !== undefined) node.textContent = text;
+    if (className) node.className = className;
+    return node;
+  }
+
+  function renderRestorePreview() {
+    const { plan, backup } = restoreSession;
+    const dates = Object.keys(plan.incoming).sort();
+    const conflicts = plan.rows.filter((row) => row.kind === "conflict");
+    const newCount = plan.rows.filter((row) => row.kind === "new").length;
+    const sameCount = plan.rows.filter((row) => row.kind === "same").length;
+    document.querySelector("#restore-summary").textContent = `作成日時：${new Date(backup.exportedAt).toLocaleString("ja-JP")}\n記録日数：${dates.length}日\n期間：${dates.length ? `${dates[0]}〜${dates[dates.length - 1]}` : "記録なし"}\n新規追加：${newCount}日／完全一致：${sameCount}日／競合：${conflicts.length}日\nエラー：0件／警告：${plan.warnings.length}件`;
+    const warnings = document.querySelector("#restore-warnings");
+    warnings.replaceChildren(...plan.warnings.map((text) => restoreNode("li", text)));
+    const list = document.querySelector("#restore-conflicts");
+    list.replaceChildren();
+    const labels = { work: "勤務区分", kids: "子供と動く", standing: "スタンディング", squat: "スクワット", march: "足踏み", plank: "プランク", walkMinutes: "散歩・分", walkSeconds: "散歩・秒", distance: "距離", walkSteps: "歩数", weight: "体重", bodyFat: "体脂肪率", basal: "基礎代謝" };
+    for (const row of conflicts) {
+      const card = restoreNode("div", undefined, "restore-conflict");
+      const details = restoreNode("details");
+      details.append(restoreNode("summary", `${row.date} の相違${row.defaultOnly ? "（現在は初期値のみの可能性）" : ""}`));
+      for (const diff of row.differences) {
+        const field = restoreNode("div", undefined, "restore-diff");
+        field.append(restoreNode("strong", Object.prototype.hasOwnProperty.call(labels, diff.field) ? labels[diff.field] : `未知項目：${diff.field}`));
+        const values = restoreNode("div", undefined, "restore-values");
+        for (const [title, value] of [["現在", diff.existing], ["バックアップ", diff.incoming]]) {
+          const cell = restoreNode("div");
+          cell.append(restoreNode("span", title), restoreNode("code", value === undefined ? "項目なし" : JSON.stringify(value)));
+          values.append(cell);
+        }
+        field.append(values); details.append(field);
+      }
+      const label = restoreNode("label", undefined, "restore-choice");
+      label.append(restoreNode("span", `${row.date} の復元方法`));
+      const select = document.createElement("select");
+      for (const [value, text] of [["keep", "既存を維持"], ["replace", "バックアップで置換"]]) {
+        const option = restoreNode("option", text); option.value = value; select.append(option);
+      }
+      select.value = "keep";
+      select.addEventListener("change", () => {
+        if (!restoreSession || restoreSession.stale) return;
+        restoreSession.choices[row.date] = select.value;
+        document.querySelector("#restore-final-confirm").checked = false;
+        updateRestoreTotals();
+      });
+      label.append(select); card.append(details, label); list.append(card);
+    }
+    document.querySelector("#restore-preview").hidden = false;
+    document.querySelector("#restore-prebackup").disabled = false;
+    setRestoreMessage("まだ保存内容は変更していません。相違内容と件数を確認してください。復元中は通常入力を一時停止しています。");
+    updateRestoreTotals();
+  }
+
+  function updateRestoreTotals() {
+    if (!restoreSession?.plan) return;
+    const { counts } = RecordTransfer.buildCandidate(restoreSession.plan, restoreSession.choices);
+    const summary = `追加${counts.added}件・置換${counts.replaced}件・スキップ${counts.skipped}件（うち一致${counts.same}件）／保存日数${counts.before}→${counts.after}日`;
+    document.querySelector("#restore-totals").textContent = summary;
+    document.querySelector("#restore-final-label").textContent = `${summary}を確認しました`;
+    const canApply = !restoreSession.stale && restoreSession.backupPrepared && document.querySelector("#restore-backup-confirm").checked
+      && document.querySelector("#restore-final-confirm").checked && counts.added + counts.replaced > 0;
+    document.querySelector("#restore-apply").disabled = !canApply;
+    document.querySelector("#restore-no-changes").hidden = counts.added + counts.replaced > 0;
+  }
+
+  async function prepareRestoreBackup() {
+    const session = restoreSession;
+    if (!session?.plan || session.stale) return;
+    clearRestoreConfirmations();
+    session.backupPrepared = false;
+    document.querySelector("#restore-prebackup").disabled = true;
+    updateRestoreTotals();
+    try {
+      if (localStorage.getItem(STORAGE_KEY) !== session.plan.baselineRaw) throw new Error("現在の記録が変わりました。ファイルを選び直して再検証してください。");
+      const started = await saveBackup();
+      if (session !== restoreSession) return;
+      if (session.stale || localStorage.getItem(STORAGE_KEY) !== session.plan.baselineRaw) throw new Error("バックアップ中に現在の記録が変わりました。再検証してください。");
+      session.backupPrepared = started;
+      document.querySelector("#restore-backup-confirm").disabled = !started;
+      setRestoreMessage(started ? "保存操作を行いました。ファイルアプリ等でJSONが保存されたことを確認し、下の確認欄をチェックしてください。アプリから保存完了は確認できません。" : "バックアップ保存を完了していません。復元はまだ実行できません。", !started);
+    } catch (error) { invalidateRestore(error.message); }
+    finally {
+      if (session === restoreSession) {
+        document.querySelector("#restore-prebackup").disabled = session.stale;
+        updateRestoreTotals();
+      }
+    }
+  }
+
+  function finishRestoreSession() {
+    ++restoreToken;
+    restoreSession = null;
+    lockForRestore(false);
+    document.querySelector("#restore-file").value = "";
+    document.querySelector("#restore-preview").hidden = true;
+    entries = readEntries();
+    hasUnsavedChanges = false;
+    loadDate(activeDate);
+    clearTimeout(saveTimer);
+    document.querySelector("#save-status").textContent = storageLoadError ? "保存データを読み込めないため、自動保存を停止中です" : "この端末に自動保存されます";
+  }
+
+  function cancelRestore() {
+    if (restoreSession) finishRestoreSession();
+    document.querySelector("#restore-panel").hidden = true;
+    setRestoreMessage("");
+  }
+
+  function applyRestore() {
+    const session = restoreSession;
+    if (!session?.plan || session.stale || !session.backupPrepared || !document.querySelector("#restore-backup-confirm").checked || !document.querySelector("#restore-final-confirm").checked) return;
+    const { counts } = RecordTransfer.buildCandidate(session.plan, session.choices);
+    if (!window.confirm(`追加${counts.added}件・置換${counts.replaced}件を反映します。保存日数は${counts.before}→${counts.after}日です。復元前バックアップを保存・確認済みですか？`)) return;
+    try {
+      const result = RecordTransfer.commitRecords(localStorage, STORAGE_KEY, session.plan, session.choices, { backupConfirmed: true, finalConfirmed: true });
+      finishRestoreSession();
+      setRestoreMessage(`復元と読み戻し照合が完了しました。追加${result.counts.added}件・置換${result.counts.replaced}件・スキップ${result.counts.skipped}件／合計${result.counts.after}日。`);
+    } catch (error) {
+      invalidateRestore(error.message);
+      if (error.code === "VERIFY_FAILED") {
+        storageLoadError = "復元後の保存内容を照合できませんでした";
+        document.querySelector("#save-status").textContent = "復元後の照合に失敗したため、自動保存を停止中です";
+      }
+    }
+  }
+
+  function handleStorageChange(event) {
+    if (event.key !== STORAGE_KEY && event.key !== null) return;
+    if (restoreSession) {
+      if (restoreSession.plan) invalidateRestore("別の画面で現在の記録が更新されました。閉じてファイルを選び直し、再検証してください。");
+      return;
+    }
+    if (hasUnsavedChanges) {
+      storageLoadError = "未保存の入力がある間に別の画面で記録が更新されました";
+      document.querySelector("#save-status").textContent = "別の画面で更新がありました。未保存の入力を控えてから再読み込みしてください";
+      return;
+    }
+    entries = readEntries();
+    loadDate(activeDate);
+    clearTimeout(saveTimer);
+    document.querySelector("#save-status").textContent = storageLoadError ? "保存データを読み込めないため、自動保存を停止中です" : "別の画面の更新を読み込みました";
   }
 
   function updateStepperButtons() {
@@ -630,6 +778,17 @@
     document.querySelector("#copy-weekly").addEventListener("click", copyWeeklyExercise);
     document.querySelector("#copy-weekly-body").addEventListener("click", copyWeeklyBody);
     document.querySelector("#backup-export").addEventListener("click", saveBackup);
+    document.querySelector("#restore-start").addEventListener("click", () => {
+      const input = document.querySelector("#restore-file");
+      input.value = ""; input.click();
+    });
+    document.querySelector("#restore-file").addEventListener("change", (event) => previewBackup(event.target.files?.[0]));
+    document.querySelector("#restore-prebackup").addEventListener("click", prepareRestoreBackup);
+    document.querySelector("#restore-backup-confirm").addEventListener("change", updateRestoreTotals);
+    document.querySelector("#restore-final-confirm").addEventListener("change", updateRestoreTotals);
+    document.querySelector("#restore-apply").addEventListener("click", applyRestore);
+    document.querySelector("#restore-cancel").addEventListener("click", cancelRestore);
+    window.addEventListener("storage", handleStorageChange);
     if (window.visualViewport) {
       window.visualViewport.addEventListener("resize", positionInputToolbar);
       window.visualViewport.addEventListener("scroll", positionInputToolbar);
