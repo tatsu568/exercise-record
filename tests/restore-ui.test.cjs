@@ -31,7 +31,7 @@ class Input extends Element {}
 
 function app(records = {}) {
   const elements = new Map(), work = [], steps = [], created = [], shared = [], clipboard = [];
-  for (const match of html.matchAll(/<([a-z-]+)\b([^>]*\bid="([^"]+)"[^>]*)>/g)) {
+  for (const match of html.matchAll(/<([a-z0-9-]+)\b([^>]*\bid="([^"]+)"[^>]*)>/g)) {
     elements.set("#" + match[3], match[1] === "input" ? new Input(match[1], match[2]) : new Element(match[1], match[2]));
   }
   for (const match of html.matchAll(/<button\b([^>]*)>/g)) {

@@ -221,6 +221,7 @@
     document.querySelector("#entry-fields").disabled = locked;
     document.querySelector("#backup-export").disabled = locked;
     document.querySelector("#restore-start").disabled = locked;
+    document.querySelector("#csv-start").disabled = locked;
     document.querySelector("#input-toolbar").hidden = true;
   }
 
@@ -233,6 +234,7 @@
   function invalidateRestore(message) {
     if (!restoreSession) return;
     restoreSession.stale = true;
+    clearCsvConflictIndex();
     clearRestoreConfirmations();
     document.querySelector("#restore-prebackup").disabled = true;
     document.querySelector("#restore-apply").disabled = true;
@@ -241,6 +243,7 @@
 
   async function previewBackup(file) {
     if (!file) return;
+    if (restoreSession) return;
     if (hasUnsavedChanges || storageLoadError) {
       setRestoreMessage("現在の入力または保存データを安全に確認できません。保存エラーを解消してから復元してください。", true);
       return;
@@ -248,6 +251,9 @@
     const token = ++restoreToken;
     restoreSession = { loading: true, stale: false, choices: {} };
     lockForRestore(true);
+    setTransferLabels(false);
+    clearCsvConflictIndex();
+    document.querySelector("#csv-settings").hidden = true;
     document.querySelector("#restore-panel").hidden = false;
     document.querySelector("#restore-preview").hidden = true;
     clearRestoreConfirmations();
@@ -273,40 +279,255 @@
     return node;
   }
 
+  function setTransferLabels(csv) {
+    document.querySelector("#restore-heading").textContent = csv ? "CSV取り込み内容の確認" : "復元内容の確認";
+    document.querySelector("#restore-prebackup").textContent = csv ? "① 取り込み前バックアップを保存" : "① 復元前バックアップを保存";
+    document.querySelector("#restore-apply").textContent = csv ? "確認してCSV取り込みを実行" : "確認して復元を実行";
+  }
+
+  async function previewCsv(file) {
+    if (!file || restoreSession) return;
+    if (hasUnsavedChanges || storageLoadError) {
+      setRestoreMessage("現在の入力または保存データを安全に確認できません。保存エラーを解消してから取り込んでください。", true);
+      return;
+    }
+    const token = ++restoreToken;
+    restoreSession = { mode: "csv", loading: true, stale: false, choices: {}, included: {}, page: 0 };
+    lockForRestore(true);
+    setTransferLabels(true);
+    clearCsvConflictIndex();
+    document.querySelector("#restore-panel").hidden = false;
+    document.querySelector("#restore-preview").hidden = true;
+    document.querySelector("#csv-settings").hidden = false;
+    document.querySelector("#csv-options").disabled = true;
+    document.querySelector("#csv-review").hidden = true;
+    document.querySelector("#csv-summary").hidden = true;
+    document.querySelector("#csv-errors").replaceChildren();
+    document.querySelector("#csv-year-confirm").checked = false;
+    document.querySelector("#csv-filename").textContent = `ファイル：${file.name}`;
+    clearRestoreConfirmations();
+    setRestoreMessage("UTF-8とCSV構造を確認しています。保存データは変更しません。");
+    try {
+      const baselineRaw = localStorage.getItem(STORAGE_KEY);
+      const bytes = await file.arrayBuffer();
+      if (token !== restoreToken) return;
+      if (restoreSession.stale || localStorage.getItem(STORAGE_KEY) !== baselineRaw) throw new Error("読み込み中に現在の記録が変わりました。閉じてファイルを選び直してください。");
+      const source = NumbersCsv.readCsv(bytes);
+      RecordTransfer.readSnapshot(baselineRaw);
+      Object.assign(restoreSession, { source, baselineRaw, loading: false });
+      document.querySelector("#csv-options").disabled = false;
+      setRestoreMessage("CSV構造を確認しました。基準年と期間を確認してプレビューしてください。まだ保存していません。");
+    } catch (error) {
+      if (token !== restoreToken) return;
+      invalidateRestore(`エラー1件：${error.message}。取り込み全体を停止しました。`);
+    }
+  }
+
+  function resetCsvPreview() {
+    if (restoreSession?.mode !== "csv") return;
+    clearCsvConflictIndex();
+    restoreSession.plan = null;
+    restoreSession.result = null;
+    restoreSession.included = {};
+    restoreSession.choices = {};
+    restoreSession.backupPrepared = false;
+    clearRestoreConfirmations();
+    document.querySelector("#restore-preview").hidden = true;
+    document.querySelector("#csv-review").hidden = true;
+    document.querySelector("#csv-summary").hidden = true;
+    document.querySelector("#csv-errors").replaceChildren();
+    document.querySelector("#restore-apply").disabled = true;
+    if (!restoreSession.stale) setRestoreMessage("条件が変更されました。基準年・期間を確認して、もう一度プレビューしてください。");
+  }
+
+  function buildCsvPreview() {
+    const session = restoreSession;
+    if (session?.mode !== "csv" || !session.source || session.stale) return;
+    resetCsvPreview();
+    try {
+      if (localStorage.getItem(STORAGE_KEY) !== session.baselineRaw) {
+        invalidateRestore("現在の記録が変わりました。閉じてファイルを選び直してください。");
+        return;
+      }
+      session.result = NumbersCsv.convertRows(session.source, {
+        year: document.querySelector("#csv-year").value,
+        start: document.querySelector("#csv-start-date").value,
+        end: document.querySelector("#csv-end-date").value,
+        yearConfirmed: document.querySelector("#csv-year-confirm").checked
+      });
+      session.page = 0;
+      const { stats, errors } = session.result;
+      document.querySelector("#csv-summary").hidden = false;
+      document.querySelector("#csv-summary").textContent = `基準年：${session.result.options.year}\n対象期間：${session.result.options.start}〜${session.result.options.end}\nCSV全行数（見出し含む論理行）：${stats.total + 1}\nデータ行：${stats.total}／期間内：${stats.inside}／期間外：${stats.outside}\n未記録として除外：${stats.unrecorded}日／日付・記録なし行：${stats.undated}\n変換成功：${stats.converted}日（うちスタンディング10のみ：${stats.ambiguous}日、個別確認が必要）\nエラー：${errors.length}件／警告：${session.result.warnings.length}件`;
+      document.querySelector("#csv-errors").replaceChildren(...errors.map((text) => restoreNode("li", text)));
+      document.querySelector("#csv-review").hidden = false;
+      renderCsvRows();
+      if (errors.length) { setRestoreMessage("変換エラーがあるため全体を停止しました。CSVを修正し、ファイルを選び直してください。保存内容は変更していません。", true); return; }
+      refreshCsvPlan();
+    } catch (error) {
+      session.plan = null;
+      document.querySelector("#restore-preview").hidden = true;
+      setRestoreMessage(`取り込みを停止しました：${error.message}。条件を確認して再プレビューしてください。`, true);
+    }
+  }
+
+  function refreshCsvPlan() {
+    const session = restoreSession;
+    if (session?.mode !== "csv" || session.stale || !session.result || session.result.errors.length) return;
+    session.plan = RecordTransfer.createPlan(session.baselineRaw, NumbersCsv.selectedRecords(session.result, session.included));
+    session.choices = {};
+    session.backupPrepared = false;
+    clearRestoreConfirmations();
+    renderRestorePreview();
+  }
+
+  function renderCsvRows() {
+    const session = restoreSession;
+    if (session?.mode !== "csv" || !session.result) return;
+    const rows = session.result.rows;
+    const start = session.page * 10;
+    const container = document.querySelector("#csv-rows");
+    container.replaceChildren();
+    const statusLabels = { converted: "変換済み", outside: "期間外・除外", unrecorded: "未記録・除外", undated: "日付と記録なし・除外", error: "エラー・全体停止" };
+    for (const row of rows.slice(start, start + 10)) {
+      const card = restoreNode("details", undefined, "restore-conflict");
+      card.append(restoreNode("summary", `${row.date || "日付なし"}（CSV論理行${row.line}）${statusLabels[row.status]}`));
+      const original = row.raw.map((value, index) => `${String.fromCharCode(65 + index)} ${NumbersCsv.HEADERS[index]}：${JSON.stringify(value)}`).join("\n");
+      card.append(restoreNode("p", "CSV元データ"), restoreNode("pre", original, "csv-record-values"));
+      if (row.entry) card.append(restoreNode("p", "変換後の保存値（散歩・身体の空欄は \"\"）"), restoreNode("pre", JSON.stringify(row.entry, null, 2), "csv-record-values"));
+      for (const note of row.notes) card.append(restoreNode("p", note, "csv-warning"));
+      if (row.error) card.append(restoreNode("p", row.error, "csv-warning"));
+      if (row.ambiguous && row.status === "converted" && !session.result.errors.length) {
+        const label = restoreNode("label", undefined, "restore-confirm");
+        const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = session.included[row.date] === true;
+        checkbox.disabled = session.stale;
+        checkbox.addEventListener("change", () => {
+          if (session !== restoreSession || session.stale) return;
+          session.included[row.date] = checkbox.checked;
+          refreshCsvPlan();
+        });
+        label.append(checkbox, restoreNode("span", "この日を実際の記録として取り込む（競合選択・保存確認は再設定されます）")); card.append(label);
+      }
+      container.append(card);
+    }
+    document.querySelector("#csv-page-label").textContent = rows.length ? `${start + 1}〜${Math.min(start + 10, rows.length)}／${rows.length}` : "0件";
+    document.querySelector("#csv-page-prev").disabled = session.page === 0;
+    document.querySelector("#csv-page-next").disabled = start + 10 >= rows.length;
+  }
+
+  function clearCsvConflictIndex() {
+    document.querySelector("#csv-conflict-index").hidden = true;
+    document.querySelector("#csv-conflict-heading").textContent = "";
+    document.querySelector("#csv-conflict-links").replaceChildren();
+    document.querySelector("#csv-conflict-links").scrollTop = 0;
+    if (restoreSession) {
+      restoreSession.conflictElements = new Map();
+      restoreSession.jumpSequence = (restoreSession.jumpSequence || 0) + 1;
+    }
+  }
+
+  function renderCsvConflictIndex(conflicts) {
+    const session = restoreSession;
+    const plan = session.plan;
+    const list = document.querySelector("#csv-conflict-links");
+    const scrollTop = list.scrollTop;
+    list.replaceChildren();
+    document.querySelector("#csv-conflict-index").hidden = conflicts.length === 0;
+    document.querySelector("#csv-conflict-heading").textContent = `競合している記録：${conflicts.length}日`;
+    for (const row of conflicts) {
+      const item = restoreNode("li");
+      const button = restoreNode("button", undefined, "csv-conflict-link");
+      button.type = "button";
+      button.dataset.conflictDate = row.date;
+      button.setAttribute("aria-label", `${row.date.replace(/-/g, "/")}の競合詳細を見る`);
+      button.append(restoreNode("span", row.date.replace(/-/g, "/")), restoreNode("span", "詳細を見る"));
+      button.addEventListener("click", () => jumpToCsvConflict(row.date, session, plan));
+      item.append(button); list.append(item);
+    }
+    list.scrollTop = scrollTop;
+  }
+
+  function jumpToCsvConflict(date, session, plan) {
+    if (session !== restoreSession || session.mode !== "csv" || session.stale || session.plan !== plan) return;
+    if (!plan.rows.some((row) => row.date === date && row.kind === "conflict")) return;
+    // Page positions use the complete CSV rows, including excluded/unrecorded days.
+    const rowIndex = session.result.rows.findIndex((row) => row.date === date);
+    if (rowIndex < 0) return;
+    const page = Math.floor(rowIndex / 10);
+    if (session.page !== page) {
+      session.page = page;
+      renderCsvRows();
+      renderRestorePreview();
+    }
+    const target = session.conflictElements.get(date);
+    if (!target) return;
+    target.details.open = true;
+    const sequence = session.jumpSequence = (session.jumpSequence || 0) + 1;
+    const scroll = () => {
+      if (restoreSession !== session || session.stale || session.plan !== plan || session.page !== page
+        || session.jumpSequence !== sequence || session.conflictElements.get(date) !== target) return;
+      target.heading.focus({ preventScroll: true });
+      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+      target.card.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
+    };
+    // Wait for the new page and opened details to be laid out before scrolling.
+    if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(scroll);
+    else setTimeout(scroll, 0);
+  }
+
   function renderRestorePreview() {
     const { plan, backup } = restoreSession;
+    const csv = restoreSession.mode === "csv";
     const dates = Object.keys(plan.incoming).sort();
-    const conflicts = plan.rows.filter((row) => row.kind === "conflict");
+    const conflicts = plan.rows.filter((row) => row.kind === "conflict").sort((left, right) => left.date.localeCompare(right.date));
     const newCount = plan.rows.filter((row) => row.kind === "new").length;
     const sameCount = plan.rows.filter((row) => row.kind === "same").length;
-    document.querySelector("#restore-summary").textContent = `作成日時：${new Date(backup.exportedAt).toLocaleString("ja-JP")}\n記録日数：${dates.length}日\n期間：${dates.length ? `${dates[0]}〜${dates[dates.length - 1]}` : "記録なし"}\n新規追加：${newCount}日／完全一致：${sameCount}日／競合：${conflicts.length}日\nエラー：0件／警告：${plan.warnings.length}件`;
+    const sourceInfo = csv ? `ファイル：${document.querySelector("#csv-filename").textContent.replace(/^ファイル：/, "")}\nスタンディング10のみで未選択：${restoreSession.result.stats.ambiguous - Object.values(restoreSession.included).filter(Boolean).length}日（除外）` : `作成日時：${new Date(backup.exportedAt).toLocaleString("ja-JP")}`;
+    const allWarnings = csv ? [...restoreSession.result.warnings, ...plan.warnings.map((text) => text.replace(/^バックアップ：/, "CSV："))] : plan.warnings;
+    document.querySelector("#restore-summary").textContent = `${sourceInfo}\n記録日数：${dates.length}日\n期間：${dates.length ? `${dates[0]}〜${dates[dates.length - 1]}` : "記録なし"}\n新規追加：${newCount}日／完全一致：${sameCount}日／競合：${conflicts.length}日\nエラー：0件／警告：${allWarnings.length}件`;
     const warnings = document.querySelector("#restore-warnings");
-    warnings.replaceChildren(...plan.warnings.map((text) => restoreNode("li", text)));
+    warnings.replaceChildren(...allWarnings.map((text) => restoreNode("li", text)));
+    if (csv) renderCsvConflictIndex(conflicts);
+    else clearCsvConflictIndex();
+    restoreSession.conflictElements = new Map();
     const list = document.querySelector("#restore-conflicts");
     list.replaceChildren();
+    const visibleDates = csv ? new Set(restoreSession.result.rows.slice(restoreSession.page * 10, restoreSession.page * 10 + 10).map((row) => row.date)) : null;
+    const visibleConflicts = csv ? conflicts.filter((row) => visibleDates.has(row.date)) : conflicts;
+    if (csv) list.append(restoreNode("p", `このページの競合：${visibleConflicts.length}日／全${conflicts.length}日。上の「全件の変換結果」のページ移動で、ほかの日付も確認できます。`, "restore-help"));
     const labels = { work: "勤務区分", kids: "子供と動く", standing: "スタンディング", squat: "スクワット", march: "足踏み", plank: "プランク", walkMinutes: "散歩・分", walkSeconds: "散歩・秒", distance: "距離", walkSteps: "歩数", weight: "体重", bodyFat: "体脂肪率", basal: "基礎代謝" };
-    for (const row of conflicts) {
+    for (const row of visibleConflicts) {
       const card = restoreNode("div", undefined, "restore-conflict");
       const details = restoreNode("details");
-      details.append(restoreNode("summary", `${row.date} の相違${row.defaultOnly ? "（現在は初期値のみの可能性）" : ""}`));
+      const heading = restoreNode("summary", `${row.date} の相違${row.defaultOnly ? "（現在は初期値のみの可能性）" : ""}`);
+      details.append(heading);
+      if (csv) {
+        card.id = `csv-conflict-${row.date}`;
+        card.className += " csv-conflict-target";
+        card.dataset.conflictDate = row.date;
+        restoreSession.conflictElements.set(row.date, { card, details, heading });
+      }
       for (const diff of row.differences) {
         const field = restoreNode("div", undefined, "restore-diff");
         field.append(restoreNode("strong", Object.prototype.hasOwnProperty.call(labels, diff.field) ? labels[diff.field] : `未知項目：${diff.field}`));
         const values = restoreNode("div", undefined, "restore-values");
-        for (const [title, value] of [["現在", diff.existing], ["バックアップ", diff.incoming]]) {
+        for (const [title, value] of [["現在", diff.existing], [csv ? "CSV" : "バックアップ", diff.incoming]]) {
           const cell = restoreNode("div");
           cell.append(restoreNode("span", title), restoreNode("code", value === undefined ? "項目なし" : JSON.stringify(value)));
           values.append(cell);
         }
+        if (csv && diff.existing !== "" && diff.existing !== undefined && (diff.incoming === "" || diff.incoming === undefined || (diff.existing !== 0 && diff.incoming === 0) || (diff.existing === true && diff.incoming === false))) {
+          field.append(restoreNode("p", "置換すると、この既存値は空欄・0・OFFになります。CSVの空欄は削除指示ではないため、必要がなければ既存を維持してください。", "csv-warning"));
+        }
         field.append(values); details.append(field);
       }
       const label = restoreNode("label", undefined, "restore-choice");
-      label.append(restoreNode("span", `${row.date} の復元方法`));
+      label.append(restoreNode("span", `${row.date} の${csv ? "取り込み" : "復元"}方法`));
       const select = document.createElement("select");
-      for (const [value, text] of [["keep", "既存を維持"], ["replace", "バックアップで置換"]]) {
+      for (const [value, text] of [["keep", "既存を維持"], ["replace", csv ? "CSVで置換" : "バックアップで置換"]]) {
         const option = restoreNode("option", text); option.value = value; select.append(option);
       }
-      select.value = "keep";
+      select.value = restoreSession.choices[row.date] || "keep";
       select.addEventListener("change", () => {
         if (!restoreSession || restoreSession.stale) return;
         restoreSession.choices[row.date] = select.value;
@@ -316,7 +537,7 @@
       label.append(select); card.append(details, label); list.append(card);
     }
     document.querySelector("#restore-preview").hidden = false;
-    document.querySelector("#restore-prebackup").disabled = false;
+    document.querySelector("#restore-prebackup").disabled = Boolean(restoreSession.backupInProgress);
     setRestoreMessage("まだ保存内容は変更していません。相違内容と件数を確認してください。復元中は通常入力を一時停止しています。");
     updateRestoreTotals();
   }
@@ -335,9 +556,10 @@
 
   async function prepareRestoreBackup() {
     const session = restoreSession;
-    if (!session?.plan || session.stale) return;
+    if (!session?.plan || session.stale || session.backupInProgress) return;
     clearRestoreConfirmations();
     session.backupPrepared = false;
+    session.backupInProgress = true;
     document.querySelector("#restore-prebackup").disabled = true;
     updateRestoreTotals();
     try {
@@ -350,6 +572,7 @@
       setRestoreMessage(started ? "保存操作を行いました。ファイルアプリ等でJSONが保存されたことを確認し、下の確認欄をチェックしてください。アプリから保存完了は確認できません。" : "バックアップ保存を完了していません。復元はまだ実行できません。", !started);
     } catch (error) { invalidateRestore(error.message); }
     finally {
+      session.backupInProgress = false;
       if (session === restoreSession) {
         document.querySelector("#restore-prebackup").disabled = session.stale;
         updateRestoreTotals();
@@ -359,9 +582,12 @@
 
   function finishRestoreSession() {
     ++restoreToken;
+    clearCsvConflictIndex();
     restoreSession = null;
     lockForRestore(false);
     document.querySelector("#restore-file").value = "";
+    document.querySelector("#csv-file").value = "";
+    document.querySelector("#csv-settings").hidden = true;
     document.querySelector("#restore-preview").hidden = true;
     entries = readEntries();
     hasUnsavedChanges = false;
@@ -380,11 +606,12 @@
     const session = restoreSession;
     if (!session?.plan || session.stale || !session.backupPrepared || !document.querySelector("#restore-backup-confirm").checked || !document.querySelector("#restore-final-confirm").checked) return;
     const { counts } = RecordTransfer.buildCandidate(session.plan, session.choices);
+    if (counts.added + counts.replaced === 0) return;
     if (!window.confirm(`追加${counts.added}件・置換${counts.replaced}件を反映します。保存日数は${counts.before}→${counts.after}日です。復元前バックアップを保存・確認済みですか？`)) return;
     try {
       const result = RecordTransfer.commitRecords(localStorage, STORAGE_KEY, session.plan, session.choices, { backupConfirmed: true, finalConfirmed: true });
       finishRestoreSession();
-      setRestoreMessage(`復元と読み戻し照合が完了しました。追加${result.counts.added}件・置換${result.counts.replaced}件・スキップ${result.counts.skipped}件／合計${result.counts.after}日。`);
+      setRestoreMessage(`${session.mode === "csv" ? "CSV取り込み" : "復元"}と読み戻し照合が完了しました。追加${result.counts.added}件・置換${result.counts.replaced}件・スキップ${result.counts.skipped}件（うち一致${result.counts.same}件）／合計${result.counts.after}日。`);
     } catch (error) {
       invalidateRestore(error.message);
       if (error.code === "VERIFY_FAILED") {
@@ -397,7 +624,7 @@
   function handleStorageChange(event) {
     if (event.key !== STORAGE_KEY && event.key !== null) return;
     if (restoreSession) {
-      if (restoreSession.plan) invalidateRestore("別の画面で現在の記録が更新されました。閉じてファイルを選び直し、再検証してください。");
+      if (restoreSession.plan || restoreSession.mode === "csv") invalidateRestore("別の画面で現在の記録が更新されました。閉じてファイルを選び直し、再検証してください。");
       return;
     }
     if (hasUnsavedChanges) {
@@ -788,6 +1015,25 @@
     document.querySelector("#restore-final-confirm").addEventListener("change", updateRestoreTotals);
     document.querySelector("#restore-apply").addEventListener("click", applyRestore);
     document.querySelector("#restore-cancel").addEventListener("click", cancelRestore);
+    document.querySelector("#csv-start").addEventListener("click", () => {
+      const input = document.querySelector("#csv-file"); input.value = ""; input.click();
+    });
+    document.querySelector("#csv-file").addEventListener("change", (event) => previewCsv(event.target.files?.[0]));
+    for (const id of ["csv-year", "csv-start-date", "csv-end-date", "csv-year-confirm"]) {
+      document.querySelector(`#${id}`).addEventListener(id === "csv-year-confirm" ? "change" : "input", () => {
+        if (id !== "csv-year-confirm") document.querySelector("#csv-year-confirm").checked = false;
+        resetCsvPreview();
+      });
+    }
+    document.querySelector("#csv-preview-button").addEventListener("click", buildCsvPreview);
+    for (const [id, delta] of [["csv-page-prev", -1], ["csv-page-next", 1]]) {
+      document.querySelector(`#${id}`).addEventListener("click", () => {
+        if (!restoreSession?.result) return;
+        const max = Math.max(0, Math.ceil(restoreSession.result.rows.length / 10) - 1);
+        restoreSession.page = Math.max(0, Math.min(max, restoreSession.page + delta)); renderCsvRows();
+        if (restoreSession.plan && !restoreSession.stale) renderRestorePreview();
+      });
+    }
     window.addEventListener("storage", handleStorageChange);
     if (window.visualViewport) {
       window.visualViewport.addEventListener("resize", positionInputToolbar);

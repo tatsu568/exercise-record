@@ -89,16 +89,43 @@
         <button id="backup-export" class="button backup-button" type="button">バックアップ保存</button>
         <button id="restore-start" class="button backup-button" type="button">バックアップ復元</button>
         </div>
+        <button id="csv-start" class="button backup-button csv-start" type="button">Numbers CSV取り込み</button>
         <p class="backup-note">この保存領域にある全日付の記録をJSONファイルに書き出します。</p>
         <p class="backup-note">復元は内容を確認してから反映します。Safariとホーム画面版では保存領域が異なる場合があります。</p>
         <input id="restore-file" type="file" accept=".json,application/json" aria-label="復元するJSONバックアップ" hidden>
+        <input id="csv-file" type="file" accept=".csv,text/csv" aria-label="取り込むNumbers CSV" hidden>
         <p id="restore-status" class="restore-status" role="status" aria-live="polite"></p>
         <div id="restore-panel" hidden>
+          <div id="csv-settings" hidden>
+            <h3>Numbers CSV取り込み</h3>
+            <p id="csv-filename" class="restore-help"></p>
+            <p class="restore-help">UTF-8・指定15列の過去データ移行用です。年ごとにCSVを分け、日付昇順で用意してください。プレビュー中は保存しません。</p>
+            <fieldset id="csv-options" class="csv-options">
+              <legend>移行する年と期間</legend>
+              <label>基準年<input id="csv-year" type="number" inputmode="numeric" min="1" max="9999" step="1" value="2026"></label>
+              <label>開始日<input id="csv-start-date" type="date" value="2026-06-15"></label>
+              <label>終了日<input id="csv-end-date" type="date" value="2026-10-14"></label>
+              <label class="restore-confirm"><input id="csv-year-confirm" type="checkbox"><span>CSVの日付に適用する基準年と対象期間を確認しました</span></label>
+              <button id="csv-preview-button" class="button backup-button" type="button">変換してプレビュー</button>
+            </fieldset>
+            <p id="csv-summary" class="restore-summary" hidden></p>
+            <ul id="csv-errors" class="restore-warnings"></ul>
+            <div id="csv-review" hidden>
+              <h3>全件の変換結果</h3>
+              <p class="restore-help">各日を開くと元の15列と変換後の値を確認できます。スタンディング10のみの行は、確認してチェックした日だけ取り込みます。</p>
+              <div id="csv-rows"></div>
+              <div class="csv-pagination"><button id="csv-page-prev" class="button backup-button" type="button">前の10件</button><span id="csv-page-label" aria-live="polite"></span><button id="csv-page-next" class="button backup-button" type="button">次の10件</button></div>
+            </div>
+          </div>
           <div id="restore-preview" hidden>
-            <h3>復元内容の確認</h3>
+            <h3 id="restore-heading">復元内容の確認</h3>
             <p id="restore-summary" class="restore-summary"></p>
+            <section id="csv-conflict-index" class="csv-conflict-index" aria-labelledby="csv-conflict-heading" hidden>
+              <h4 id="csv-conflict-heading"></h4>
+              <ul id="csv-conflict-links" class="csv-conflict-links" aria-labelledby="csv-conflict-heading" tabindex="0"></ul>
+            </section>
             <ul id="restore-warnings" class="restore-warnings"></ul>
-            <p class="restore-help">競合は「既存を維持」が初期選択です。置換すると、その日付全体を空欄も含めて置き換えます。値の補完・自動マージは行いません。文字列は引用符付き、空欄は "" で表示します。</p>
+            <p class="restore-help">競合は「既存を維持」が初期選択です。置換すると、その日付全体を空欄も含めて置き換え、既存値が消えることがあります。値の補完・自動マージは行いません。文字列は引用符付き、空欄は "" で表示します。</p>
             <div id="restore-conflicts"></div>
             <p id="restore-totals" class="restore-summary"></p>
             <p id="restore-no-changes" class="restore-help" hidden>反映する変更はありません。「閉じる・キャンセル」で通常入力に戻れます。</p>
@@ -119,6 +146,7 @@
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="record-transfer.js" defer></script>
+  <script src="numbers-csv.js" defer></script>
   <script src="script.js" defer></script>
 </body>
 </html>
