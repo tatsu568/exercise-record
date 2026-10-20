@@ -15,6 +15,7 @@
   let restoreSession = null;
   let restoreToken = 0;
   let hasUnsavedChanges = false;
+  let historyBrowsing = false;
   let entries = readEntries();
   let currentEntry = { ...DEFAULT_ENTRY };
   let activeDate = "";
@@ -57,7 +58,7 @@
 
   function switchDate(date) {
     if (!date) return;
-    if (restoreSession) { FIELDS.date.value = activeDate; return; }
+    if (restoreSession || historyBrowsing) { FIELDS.date.value = activeDate; return; }
     if (date === activeDate) {
       FIELDS.date.value = activeDate;
       return;
@@ -118,7 +119,7 @@
   }
 
   function saveCurrentEntry() {
-    if (restoreSession) return false;
+    if (restoreSession || historyBrowsing) return false;
     if (storageLoadError) {
       document.querySelector("#save-status").textContent = "保存データを読み込めないため、自動保存を停止中です";
       return false;
@@ -214,6 +215,7 @@
   }
 
   function lockForRestore(locked) {
+    document.querySelector("#history-show").disabled = locked;
     if (locked) {
       clearTimeout(saveTimer);
       document.querySelector("#save-status").textContent = "復元の確認中：通常入力を一時停止しています";
@@ -955,6 +957,7 @@
   function updateInputToolbar() {
     const active = document.activeElement;
     const bar = document.querySelector("#input-toolbar");
+    if (historyBrowsing) { bar.hidden = true; return; }
     const focused = INPUT_ORDER.includes(active);
     bar.hidden = !focused;
     if (focused) {
@@ -1040,6 +1043,36 @@
       window.visualViewport.addEventListener("scroll", positionInputToolbar);
     }
   }
+
+  // History navigation reads saved snapshots directly, never switchDate (which saves).
+  window.RecordHistoryInput = Object.freeze({
+    canBrowse() {
+      if (restoreSession) return "復元・CSV取り込みの確認を閉じてから履歴を開いてください";
+      if (hasUnsavedChanges) return "未保存の入力があります。入力内容を控え、保存エラーを解消してから履歴を開いてください";
+      return "";
+    },
+    notify(message) { showToast(message, 5000); },
+    setBrowsing(open) {
+      const wasBrowsing = historyBrowsing;
+      historyBrowsing = open;
+      if (!open && wasBrowsing && !hasUnsavedChanges) {
+        entries = readEntries(); loadDate(activeDate);
+        document.querySelector("#save-status").textContent = storageLoadError ? "保存データを読み込めないため、自動保存を停止中です" : "この端末に自動保存されます";
+      }
+    },
+    openSavedDate(date, expectedRaw) {
+      const blocked = this.canBrowse();
+      if (blocked) return blocked;
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw !== expectedRaw) return "閲覧中に保存内容が変わりました。最新の詳細を確認してから、もう一度開いてください。";
+        const snapshot = RecordTransfer.readSnapshot(raw);
+        if (!Object.prototype.hasOwnProperty.call(snapshot.records, date)) return "この日には保存記録がありません。記録は作成していません。";
+        entries = snapshot.records; storageLoadError = ""; loadDate(date);
+        return "";
+      } catch (error) { return `入力画面への移動を停止しました：${error.message}。保存内容は変更していません。`; }
+    }
+  });
 
   FIELDS.date.value = localDateString();
   loadDate(FIELDS.date.value);

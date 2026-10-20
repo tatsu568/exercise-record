@@ -1,10 +1,10 @@
 "use strict";
 
-const CACHE_NAME = "exercise-record-v15";
-const APP_FILES = ["./", "./index.html", "./style.css", "./record-transfer.js", "./numbers-csv.js", "./script.js", "./manifest.json", "./icons/icon.svg", "./icons/apple-touch-icon.png"];
+const CACHE_NAME = "exercise-record-v16";
+const APP_FILES = ["./", "./index.html", "./style.css?v=0.3-labels-20261020", "./record-transfer.js", "./numbers-csv.js", "./script.js", "./record-history.js", "./history-view.js?v=0.3-labels-20261020", "./manifest.json", "./icons/icon.svg", "./icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_FILES)));
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_FILES.map((url) => new Request(url, { cache: "reload" })))));
   self.skipWaiting();
 });
 
