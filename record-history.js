@@ -73,7 +73,7 @@
       const type = missing ? "項目なし" : value === null ? "null" : typeof value;
       const rawText = typeof value === "number" && !Number.isFinite(value) ? String(value) : JSON.stringify(value);
       const text = missing ? "項目なし（補完していません）" : error ? `不正な値：${rawText}（${type}）`
-        : value === "" ? "空欄" : key === "kids" ? (value ? "ON（true）" : "OFF（false）") : `${value}${unit ? ` ${unit}` : ""}`;
+        : value === "" ? "空欄" : key === "kids" ? (value ? "あり" : "なし") : `${value}${unit ? ` ${unit}` : ""}`;
       return { key, label, unit, value, missing, error, type, text };
     });
     const unknown = object(entry) ? Object.keys(entry).filter((key) => !own(transfer.DEFAULT_ENTRY, key)) : [];
@@ -82,19 +82,34 @@
     return { date, saved: true, kind: review ? "review" : defaultOnly ? "default" : "record", fields, unknown, canEdit: !review };
   }
 
-  function summary(detail) {
+  function summaryGroups(detail) {
     const field = (key) => detail.fields.find((item) => item.key === key);
     const part = (key) => { const item = field(key); return item.missing || item.error ? "要確認" : item.value === "" ? "未選択" : item.value; };
-    const parts = [`勤務：${part("work")}`, `子供：${part("kids") === true ? "ON" : part("kids") === false ? "OFF" : "要確認"}`];
-    for (const key of ["standing", "squat", "march", "plank"]) {
+    const exercise = (key) => {
       const item = field(key);
-      parts.push(`${item.label}：${item.missing || item.error ? "要確認" : `${item.value}${item.unit}`}`);
-    }
-    for (const [label, keys] of [["散歩", ["walkMinutes", "walkSeconds", "distance", "walkSteps"]], ["身体", ["weight", "bodyFat", "basal"]]]) {
+      return `${item.label}：${item.missing || item.error ? "要確認" : `${item.value}${item.unit}`}`;
+    };
+    const measurements = (label, keys, values) => {
       const items = keys.map(field);
-      parts.push(`${label}：${items.some((item) => item.error || item.missing) ? "要確認" : items.some((item) => item.value !== "") ? "あり" : "なし"}`);
-    }
-    return parts.join(" ／ ");
+      return `${label}：${items.some((item) => item.error || item.missing) ? "要確認" : values().filter((value) => value !== "").join(",") || "なし"}`;
+    };
+    const minutes = field("walkMinutes"), seconds = field("walkSeconds");
+    const withUnit = (key) => { const item = field(key); return item.value === "" ? "" : `${item.value}${item.unit}`; };
+    const walk = measurements("散歩", ["walkMinutes", "walkSeconds", "distance", "walkSteps"], () => [
+      minutes.value !== "" && seconds.value !== "" ? `${minutes.value}:${String(Number(seconds.value)).padStart(2, "0")}`
+        : minutes.value !== "" ? `${minutes.value}分` : seconds.value !== "" ? `${seconds.value}秒` : "",
+      withUnit("distance"), withUnit("walkSteps")
+    ]);
+    const body = measurements("身体", ["weight", "bodyFat"], () => [withUnit("weight"), withUnit("bodyFat")]);
+    return [
+      [`勤務：${part("work")}`, `子供：${part("kids") === true ? "あり" : part("kids") === false ? "なし" : "要確認"}`, exercise("standing")],
+      [exercise("squat"), exercise("march"), exercise("plank")],
+      [walk, body]
+    ];
+  }
+
+  function summary(detail) {
+    return summaryGroups(detail).flat().join(" / ");
   }
 
   function monthRecords(records, year, month) {
@@ -105,5 +120,5 @@
     return { rows, counts };
   }
 
-  return Object.freeze({ FIELDS, WEEKDAYS, read, localToday, validDate, calendar, moveMonth, dateLabel, describe, summary, monthRecords });
+  return Object.freeze({ FIELDS, WEEKDAYS, read, localToday, validDate, calendar, moveMonth, dateLabel, describe, summary, summaryGroups, monthRecords });
 });

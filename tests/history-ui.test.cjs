@@ -95,13 +95,13 @@ test("list is monthly and descending, with accurate saved and default counts", (
   const instance = app({ "2032-10-18": day(), "2032-10-19": day({ weight: "0" }), "2032-09-30": day() }); instance.screen.open();
   const rows = instance.get("history-list").children;
   assert.deepEqual(rows.map((item) => item.children[0].dataset.date), ["2032-10-19", "2032-10-18"]);
-  assert.match(instance.get("history-count").textContent, /保存2日.*初期値のみの可能性1日/);
+  assert.match(text(instance.get("history-count")), /保存2日[\s\S]*初期値のみの可能性1日/);
   rows[1].children[0].click(); assert.match(instance.get("history-detail-state").textContent, /初期値のみ/);
 });
 test("all 13 fields retain zeros, empty fields, false and decimal text in 12 display rows", () => {
   const instance = app({ "2032-10-18": day({ weight: "51.2300", bodyFat: "0", distance: "0.00", walkSteps: "0" }) }); instance.screen.open(); select(instance, "2032-10-18");
   const values = instance.get("history-detail-values"); assert.equal(values.children.length, 12);
-  const content = text(values); for (const value of ["51.2300 kg", "0 %", "0.00 km", "0 歩", "空欄", "OFF"]) assert.ok(content.includes(value), value);
+  const content = text(values); for (const value of ["51.2300 kg", "0 %", "0.00 km", "0 歩", "空欄", "なし"]) assert.ok(content.includes(value), value);
   assert.doesNotMatch(content, /文字列|数値|真偽値|OFF（false）/);
   assert.equal(instance.store.writes, 0);
 });
@@ -116,7 +116,7 @@ test("partial, invalid and missing records show original states without suppleme
 test("empty storage permits browsing without generating records", () => {
   for (const initial of [null, {}]) {
     const instance = app(initial), before = instance.store.raw; instance.screen.open(); select(instance, "2032-10-20");
-    assert.match(instance.get("history-count").textContent, /保存0日/); instance.screen.close();
+    assert.match(text(instance.get("history-count")), /保存0日/); instance.screen.close();
     assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
   }
 });
@@ -155,9 +155,9 @@ test("input changes appear when history is reopened", () => {
 test("storage notifications and PWA resume refresh read-only history", () => {
   const instance = app(); instance.screen.open();
   instance.store.raw = JSON.stringify({ "2032-10-18": day({ walkSteps: "0" }) }); instance.emit("storage", { key: "exercise-record.entries.v1" });
-  assert.match(instance.get("history-count").textContent, /保存1日/);
+  assert.match(text(instance.get("history-count")), /保存1日/);
   instance.store.raw = JSON.stringify({ "2032-10-18": day(), "2032-10-19": day() }); instance.emit("pageshow");
-  assert.match(instance.get("history-count").textContent, /保存2日/); assert.equal(instance.store.writes, 0);
+  assert.match(text(instance.get("history-count")), /保存2日/); assert.equal(instance.store.writes, 0);
 });
 test("stale snapshots cannot be opened as an old input form", () => {
   const instance = app({ "2032-10-18": day({ weight: "50" }) }); instance.screen.open(); select(instance, "2032-10-18");
@@ -342,11 +342,11 @@ test("normal numeric details keep zero, values and units without type-label elem
   assert.equal(instance.store.writes, 0);
 });
 
-test("valid booleans display ON/OFF and stay booleans in unchanged storage", () => {
+test("valid booleans display presence/absence and stay booleans in unchanged storage", () => {
   for (const kids of [false, true]) {
     const instance = app({ "2032-10-18": day({ kids }) }), before = instance.store.raw;
     instance.screen.open(); select(instance, "2032-10-18");
-    const value = detailValue(instance, "子供と動く"); assert.equal(value.textContent, kids ? "ON" : "OFF"); assert.equal(value.children.length, 0);
+    const value = detailValue(instance, "子供と動く"); assert.equal(value.textContent, kids ? "あり" : "なし"); assert.equal(value.children.length, 0);
     instance.screen.close(); assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
     assert.equal(JSON.parse(instance.store.raw)["2032-10-18"].kids, kids);
     assert.equal(typeof JSON.parse(instance.store.raw)["2032-10-18"].kids, "boolean");
@@ -358,7 +358,7 @@ test("all thirteen source fields remain intact across twelve compact detail rows
     walkMinutes: "27", walkSeconds: "15", distance: "1.2300", walkSteps: "2500", weight: "51.2300", bodyFat: "0", basal: "" });
   const instance = app({ "2032-10-18": entry }), before = instance.store.raw;
   instance.screen.open(); select(instance, "2032-10-18");
-  const expected = [["勤務区分", "在宅"], ["子供と動く", "OFF"], ["スタンディング", "15"], ["スクワット", "10 回"], ["足踏み", "2 回"], ["プランク", "90 秒"],
+  const expected = [["勤務区分", "在宅"], ["子供と動く", "なし"], ["スタンディング", "15"], ["スクワット", "10 回"], ["足踏み", "2 回"], ["プランク", "90 秒"],
     ["散歩・時間", "27分15秒"], ["散歩・距離", "1.2300 km"], ["散歩・歩数", "2500 歩"], ["体重", "51.2300 kg"], ["体脂肪率", "0 %"], ["基礎代謝", "空欄"]];
   const rows = instance.get("history-detail-values").children;
   assert.deepEqual(rows.map((row) => row.children.map((cell) => cell.textContent)), expected);
@@ -409,7 +409,7 @@ test("history renderer and stylesheet have resource version URLs independent of 
 test("versioned history renderer is used by browser initialization and shows no normal type labels", () => {
   const instance = app({ "2032-10-18": day({ kids: false, squat: 15, weight: "51.20" }) }, "2032-10-19", true), before = instance.store.raw;
   instance.screen.open(); select(instance, "2032-10-18");
-  assert.equal(detailValue(instance, "子供と動く").textContent, "OFF");
+  assert.equal(detailValue(instance, "子供と動く").textContent, "なし");
   assert.equal(detailValue(instance, "スクワット").textContent, "15 回");
   assert.doesNotMatch(text(instance.get("history-detail-values")), /文字列|数値|真偽値|OFF（false）/);
   assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
@@ -446,8 +446,8 @@ test("offline cache includes exact versioned asset URLs and keeps the existing c
       saved.set(url.href, { ok: true, body });
     }
   } };
-  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v16"); return cache; },
-    keys: async () => ["exercise-record-v15", "exercise-record-v16", "other-cache"], delete: async (name) => { deleted.push(name); },
+  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v17"); return cache; },
+    keys: async () => ["exercise-record-v16", "exercise-record-v17", "other-cache"], delete: async (name) => { deleted.push(name); },
     match: async (request) => saved.get(request.url) };
   const context = { self, caches, URL, Request: WorkerRequest, fetch: async () => { networkCalls++; throw Error("offline"); } };
   Object.defineProperty(context, "localStorage", { get() { assert.fail("Service Worker must not access records"); } });
@@ -465,5 +465,142 @@ test("offline cache includes exact versioned asset URLs and keeps the existing c
   }
   assert.equal(networkCalls, 0);
   events.activate({ waitUntil: (promise) => { pending = promise; } }); await pending;
-  assert.deepEqual(deleted, ["exercise-record-v15"]); assert(skipped && claimed);
+  assert.deepEqual(deleted, ["exercise-record-v16"]); assert(skipped && claimed);
+});
+
+
+function listButton(instance, date) {
+  return instance.get("history-list").children.map((item) => item.children[0]).find((button) => button.dataset?.date === date);
+}
+function joined(node) { return text(node).replace(/\n/g, ""); }
+
+for (const [name, entry, expected] of [
+  ["saved", day({ kids: true }), "● 保存済み"],
+  ["default-only", day(), "△ 初期値のみの可能性"],
+  ["review", day({ weight: 0 }), "! 要確認"]
+]) {
+  test(`monthly header groups date and unchanged state: ${name}`, () => {
+    const instance = app({ "2032-10-18": entry }), before = instance.store.raw;
+    instance.screen.open();
+    const button = listButton(instance, "2032-10-18"), header = button.children[0];
+    assert.equal(header.className, "history-list-header");
+    assert.equal(header.children[0].tag, "strong"); assert.equal(header.children[0].textContent, "2032/10/18（月）");
+    assert.equal(header.children[1].textContent, expected);
+    button.click(); assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
+  });
+}
+
+test("monthly count renders two explicit rows with all four real counts", () => {
+  const instance = app({ "2032-10-17": day({ kids: true }), "2032-10-18": day(), "2032-10-19": day({ weight: 0 }) });
+  instance.screen.open();
+  const rows = instance.get("history-count").children;
+  assert.equal(rows.length, 2); assert(rows.every((row) => row.className === "history-count-row"));
+  assert.deepEqual(rows.map(joined), ["保存3日 / 初期値と異なる保存値1日", "初期値のみの可能性1日 / 要確認1日"]);
+  assert(rows.every((row) => row.children[0].children.length === 2 && !joined(row).endsWith("/")));
+  assert.equal(instance.store.writes, 0);
+});
+
+test("empty month retains both count rows and does not generate a record", () => {
+  const instance = app(null); instance.screen.open();
+  assert.deepEqual(instance.get("history-count").children.map(joined), ["保存0日 / 初期値と異なる保存値0日", "初期値のみの可能性0日 / 要確認0日"]);
+  assert.equal(instance.store.raw, null); assert.equal(instance.store.writes, 0);
+});
+
+test("monthly cards have three separate ordered groups and show complete measurement values", () => {
+  const instance = app({ "2032-10-18": day({ work: "在宅", march: 1, walkMinutes: "20", walkSeconds: "10", distance: "2.5", walkSteps: "2500", weight: "55.5", bodyFat: "16.5", basal: "1300" }) });
+  const before = instance.store.raw; instance.screen.open();
+  const button = listButton(instance, "2032-10-18"), groups = button.children.slice(1);
+  assert.equal(groups.length, 3); assert(groups.every((group) => group.className === "history-summary-group"));
+  assert.deepEqual(groups.map(joined), ["勤務：在宅 / 子供：なし / スタンディング：10", "スクワット：0回 / 足踏み：1回 / プランク：0秒", "散歩：20:10,2.5km,2500歩 / 身体：55.5kg,16.5%"]);
+  assert.deepEqual(groups.map((group) => group.children[0].children.length), [3, 3, 2]);
+  assert.doesNotMatch(joined(button), /1300|…/);
+  button.click(); assert.equal(detailValue(instance, "散歩・時間").textContent, "20分10秒");
+  assert.equal(detailValue(instance, "基礎代謝").textContent, "1300 kcal");
+  instance.get("history-edit").click(); instance.flushFrames(); assert.equal(instance.window.scrollY, 0);
+  assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
+});
+
+for (const kids of [true, false]) {
+  test(`children are presence/absence in monthly list and details: ${kids}`, () => {
+    const instance = app({ "2032-10-18": day({ kids }) }), before = instance.store.raw; instance.screen.open();
+    const button = listButton(instance, "2032-10-18");
+    assert.match(joined(button.children[1]), kids ? /子供：あり/ : /子供：なし/);
+    button.click(); assert.equal(detailValue(instance, "子供と動く").textContent, kids ? "あり" : "なし");
+    instance.get("history-month-prev").click(); instance.get("history-month-next").click(); instance.screen.close();
+    assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
+    assert.equal(typeof JSON.parse(instance.store.raw)["2032-10-18"].kids, "boolean");
+  });
+}
+
+test("missing and invalid children stay warnings in both views", () => {
+  for (const missing of [true, false]) {
+    const entry = day({ kids: "false" }); if (missing) delete entry.kids;
+    const instance = app({ "2032-10-18": entry }), before = instance.store.raw; instance.screen.open();
+    const button = listButton(instance, "2032-10-18"); assert.match(joined(button.children[1]), /子供：要確認/);
+    button.click(); assert.match(detailValue(instance, "子供と動く").textContent, missing ? /項目なし/ : /不正な値/);
+    assert.equal(instance.get("history-edit").hidden, true); assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
+  }
+});
+
+test("basal-only records show no listed body values while retaining the detailed basal value", () => {
+  const instance = app({ "2032-10-18": day({ basal: "1234" }) }); instance.screen.open();
+  const button = listButton(instance, "2032-10-18"); assert.equal(joined(button.children[3]), "散歩：なし / 身体：なし");
+  button.click(); assert.equal(detailValue(instance, "基礎代謝").textContent, "1234 kcal"); assert.equal(instance.store.writes, 0);
+});
+
+test("long decimal strings are not rounded or elided in monthly cards", () => {
+  const instance = app({ "2032-10-18": day({ distance: "1.2345678900", weight: "55.1234567890", bodyFat: "16.1234567890" }) });
+  instance.screen.open(); const group = listButton(instance, "2032-10-18").children[3];
+  for (const value of ["1.2345678900km", "55.1234567890kg", "16.1234567890%"]) assert(joined(group).includes(value));
+  assert.doesNotMatch(joined(group), /…/); assert.equal(instance.store.writes, 0);
+});
+
+test("monthly layout wraps whole items and clips only decorative row-edge separators", () => {
+  const css = fs.readFileSync(path.join(root, "style.css"), "utf8");
+  assert.match(css, /\.history-list-header\s*\{[^}]*flex-wrap: wrap/);
+  assert.match(css, /\.history-joined-flow\s*\{[^}]*flex-wrap: wrap[^}]*margin-left: calc\(-1 \* var\(--history-join-gap\)\)/);
+  assert.match(css, /\.history-joined-item\s*\{[^}]*min-width: 0[^}]*max-width: calc\(100% - var\(--history-join-gap\)\)[^}]*margin-left: var\(--history-join-gap\)/);
+  assert.match(css, /\.history-joined-separator\s*\{[^}]*position: absolute[^}]*right: 100%[^}]*white-space: pre/);
+  assert.match(css, /\.history-count-row, \.history-summary-group, \.history-summary-values\s*\{[^}]*overflow: hidden/);
+  assert.match(css, /\.history-summary-part\s*\{[^}]*white-space: nowrap/);
+  assert.doesNotMatch(css, /text-overflow:\s*ellipsis|line-clamp/);
+});
+
+
+function descendants(node) { return [node, ...node.children.flatMap(descendants)]; }
+
+test("monthly separators are separate decoration with exact spaces and no prefix in value text", () => {
+  const instance = app({ "2032-10-18": day({ walkMinutes: "27", walkSeconds: "15", distance: "1.98", walkSteps: "2464", weight: "55.5", bodyFat: "16.5" }) });
+  instance.screen.open(); const button = listButton(instance, "2032-10-18");
+  const groups = button.children.slice(1), count = instance.get("history-count");
+  assert.deepEqual(count.children.map(joined), ["保存1日 / 初期値と異なる保存値1日", "初期値のみの可能性0日 / 要確認0日"]);
+  assert.equal(joined(groups[2]), "散歩：27:15,1.98km,2464歩 / 身体：55.5kg,16.5%");
+  const all = descendants(button).concat(descendants(count));
+  const separators = all.filter((item) => item.className === "history-joined-separator");
+  assert.equal(separators.filter((item) => item.textContent === " / ").length, 7);
+  assert.equal(separators.filter((item) => item.textContent === ",").length, 3);
+  assert(separators.every((item) => item["aria-hidden"] === "true"));
+  assert(all.filter((item) => item.className === "history-summary-part").every((item) => !/^[\s/,]|[/,]$/.test(item.textContent)));
+  assert.doesNotMatch(joined(groups[2]), /／|、|\s,|,\s/);
+  button.click(); assert.equal(detailValue(instance, "散歩・時間").textContent, "27分15秒");
+  assert.equal(detailValue(instance, "体重").textContent, "55.5 kg");
+  assert.equal(detailValue(instance, "体脂肪率").textContent, "16.5 %");
+  assert.equal(instance.store.writes, 0);
+});
+
+test("monthly ASCII formatting does not alter detail warning punctuation or saved values", () => {
+  const instance = app({ "2032-10-18": day({ walkMinutes: "1.5", walkSeconds: "0", kids: true }) }), before = instance.store.raw;
+  instance.screen.open(); const button = listButton(instance, "2032-10-18");
+  assert.equal(joined(button.children[3]), "散歩：要確認 / 身体：なし");
+  button.click(); assert.match(detailValue(instance, "散歩・時間").textContent, /分：不正な値："1.5"（string） ／ 秒：0 秒/);
+  assert.equal(detailValue(instance, "子供と動く").textContent, "あり");
+  assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
+});
+
+test("updated monthly assets use one shared new identifier and keep unpublished cache v17", () => {
+  const version = "0.3-history-separators-20261021", worker = fs.readFileSync(path.join(root, "service-worker.js"), "utf8");
+  for (const file of ["record-history.js", "history-view.js", "style.css"]) {
+    assert(html.includes(`${file}?v=${version}`)); assert(worker.includes(`./${file}?v=${version}`));
+  }
+  assert(worker.includes('const CACHE_NAME = "exercise-record-v17"'));
 });

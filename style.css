@@ -139,9 +139,21 @@ button { touch-action: manipulation; }
 .history-value dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 #history-edit { width: 100%; }
 .history-list { margin: 0; padding: 0; list-style: none; }
-.history-list-button { display: flex; width: 100%; min-width: 0; min-height: 52px; margin-top: 8px; padding: 10px; flex-direction: column; gap: 4px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--ink); text-align: left; overflow-wrap: anywhere; }
+.history-list-card { padding-inline: 10px; }
+.history-list-button { display: flex; width: 100%; min-width: 0; min-height: 52px; margin-top: 8px; padding: 10px 6px; flex-direction: column; gap: 4px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--ink); text-align: left; overflow-wrap: anywhere; }
 .history-list-button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
 .history-list-button .history-help { margin: 0; }
+.history-list-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 10px; }
+.history-list-header strong { white-space: nowrap; }
+.history-list-header .history-kind { min-width: 0; }
+/* Negative flow margin clips only separators before a wrapped row's first item. */
+.history-count-row, .history-summary-group, .history-summary-values { --history-join-gap: .85em; display: block; min-width: 0; overflow: hidden; }
+.history-joined-flow { display: flex; flex-wrap: wrap; row-gap: 2px; margin-left: calc(-1 * var(--history-join-gap)); }
+.history-joined-item { position: relative; flex: 0 1 auto; min-width: 0; max-width: calc(100% - var(--history-join-gap)); margin-left: var(--history-join-gap); }
+.history-joined-separator { position: absolute; top: 0; right: 100%; width: var(--history-join-gap); text-align: center; white-space: pre; }
+.history-summary-group { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.history-summary-values { --history-join-gap: .28em; }
+.history-summary-part { white-space: nowrap; }
 footer { padding: 2px 2px 4px; color: var(--muted); text-align: center; font-size: 12px; }
 .toast { position: fixed; z-index: 10; top: max(12px, env(safe-area-inset-top)); left: 50%; padding: 11px 17px; border: 1px solid #ffffff80; border-radius: 999px; background: #25372feF; color: white; box-shadow: 0 5px 18px #0002; font-size: 14px; font-weight: 650; opacity: 0; pointer-events: none; transform: translate(-50%, -8px); transition: opacity .18s ease, transform .18s ease; white-space: nowrap; }
 .toast.visible { opacity: 1; transform: translate(-50%, 0); }

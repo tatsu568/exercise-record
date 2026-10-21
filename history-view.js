@@ -33,6 +33,20 @@
       if (className) item.className = className;
       return item;
     };
+    // Separators sit outside each item; clipping at the row edge hides them after wrapping.
+    function joinedParts(parts, className, separator, renderPart = (part) => node("span", part, "history-summary-part")) {
+      const group = node("span", undefined, className);
+      const flow = node("span", undefined, "history-joined-flow");
+      for (const [index, part] of parts.entries()) {
+        const item = node("span", undefined, className === "history-summary-group" ? "history-joined-item history-summary-item" : "history-joined-item");
+        if (index) {
+          const divider = node("span", separator, "history-joined-separator");
+          divider.setAttribute("aria-hidden", "true"); item.append(divider);
+        }
+        item.append(renderPart(part)); flow.append(item);
+      }
+      group.append(flow); return group;
+    }
     const state = { open: false, records: {}, raw: null, year: 0, month: 0, selected: null, error: false };
     let inputScrollSequence = 0;
     function status(text, error = false) {
@@ -64,8 +78,7 @@
       else {
         for (const field of detailRows(record.fields)) {
           const row = node("dl", undefined, "history-value");
-          const display = field.key === "kids" && !field.missing && !field.error ? (field.value ? "ON" : "OFF") : field.text;
-          const value = node("dd", display);
+          const value = node("dd", field.text);
           row.append(node("dt", field.label), value);
           values.append(row);
         }
@@ -80,6 +93,7 @@
       get("history-month-next").disabled = !model.moveMonth(state.year, state.month, 1);
       const grid = get("history-calendar"); grid.replaceChildren();
       const list = get("history-list"); list.replaceChildren();
+      get("history-count").replaceChildren();
       if (state.error) {
         get("history-count").textContent = "保存内容を読み取れないため、記録の有無を判定できません。";
         get("history-detail").hidden = true;
@@ -102,13 +116,24 @@
         button.addEventListener("click", () => selectDate(date)); grid.append(button);
       }
       const counts = month.counts;
-      get("history-count").textContent = `保存${counts.saved}日 ／ 初期値と異なる保存値${counts.record}日 ／ 初期値のみの可能性${counts.default}日 ／ 要確認${counts.review}日`;
+      for (const parts of [
+        [`保存${counts.saved}日`, `初期値と異なる保存値${counts.record}日`],
+        [`初期値のみの可能性${counts.default}日`, `要確認${counts.review}日`]
+      ]) {
+        get("history-count").append(joinedParts(parts, "history-count-row", " / "));
+      }
       if (!month.rows.length) list.append(node("li", "この月の保存記録はありません。"));
       for (const row of month.rows) {
         const item = node("li");
         const button = node("button", undefined, "history-list-button"); button.type = "button"; button.dataset.date = row.date;
         button.setAttribute("aria-pressed", String(row.date === state.selected));
-        button.append(node("strong", model.dateLabel(row.date)), node("span", `${MARK[row.kind]} ${KIND[row.kind]}`, "history-kind"), node("span", model.summary(row), "history-help"));
+        const header = node("span", undefined, "history-list-header");
+        header.append(node("strong", model.dateLabel(row.date)), node("span", `${MARK[row.kind]} ${row.kind === "review" ? "要確認" : KIND[row.kind]}`, "history-kind"));
+        button.append(header);
+        for (const parts of model.summaryGroups(row)) {
+          button.append(joinedParts(parts, "history-summary-group", " / ", (part) =>
+            joinedParts(part.split(","), "history-summary-values", ",")));
+        }
         button.addEventListener("click", () => selectDate(row.date)); item.append(button); list.append(item);
       }
       renderDetail();

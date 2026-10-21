@@ -59,13 +59,13 @@ test("all thirteen fields and original scalar types are available", () => {
 });
 test("empty, numeric zero, string zero and false remain distinct", () => {
   const fields = history.describe({ "2032-02-29": day({ weight: "0" }) }, "2032-02-29").fields;
-  for (const [key, type, text] of [["weight", "string", "0 kg"], ["bodyFat", "string", "空欄"], ["squat", "number", "0 回"], ["kids", "boolean", "OFF（false）"]]) {
+  for (const [key, type, text] of [["weight", "string", "0 kg"], ["bodyFat", "string", "空欄"], ["squat", "number", "0 回"], ["kids", "boolean", "なし"]]) {
     const field = fields.find((item) => item.key === key); assert.equal(field.type, type); assert.equal(field.text, text);
   }
 });
 test("partial walk values are displayed without zero supplementation", () => {
   const detail = history.describe({ "2032-02-29": day({ walkSteps: "0" }) }, "2032-02-29");
-  assert.match(history.summary(detail), /散歩：あり/);
+  assert.match(history.summary(detail), /散歩：0歩/);
   assert.equal(detail.fields.find((field) => field.key === "walkMinutes").text, "空欄");
   assert.equal(detail.fields.find((field) => field.key === "walkSteps").text, "0 歩");
 });
@@ -113,4 +113,93 @@ test("read and every browsing calculation leave the original JSON and objects in
   for (let index = 0; index < 12; index++) history.monthRecords(records, 2032, index + 1);
   history.describe(records, "2032-03-01");
   assert.equal(JSON.stringify(records), source);
+});
+
+
+test("summary has three fixed groups with specific walk/body values and no basal value", () => {
+  const entry = day({ work: "在宅", kids: false, standing: 10, march: 1, walkMinutes: "20", walkSeconds: "10", distance: "2.5", walkSteps: "2500", weight: "55.5", bodyFat: "16.5", basal: "1300" });
+  const records = { "2032-10-18": entry }, before = JSON.stringify(records);
+  assert.deepEqual(history.summaryGroups(history.describe(records, "2032-10-18")), [
+    ["勤務：在宅", "子供：なし", "スタンディング：10"],
+    ["スクワット：0回", "足踏み：1回", "プランク：0秒"],
+    ["散歩：20:10,2.5km,2500歩", "身体：55.5kg,16.5%"]
+  ]);
+  assert.equal(JSON.stringify(records), before);
+});
+
+const summaryWalkCases = [
+  ["full time", { walkMinutes: "20", walkSeconds: "10" }, "20:10"],
+  ["padded seconds", { walkMinutes: "27", walkSeconds: "5" }, "27:05"],
+  ["minutes only", { walkMinutes: "20" }, "20分"],
+  ["seconds only", { walkSeconds: "10" }, "10秒"],
+  ["explicit zeros", { walkMinutes: "0", walkSeconds: "0", distance: "0", walkSteps: "0" }, "0:00,0km,0歩"],
+  ["blank", {}, "なし"],
+  ["distance only", { distance: "1.2300" }, "1.2300km"],
+  ["steps only", { walkSteps: "2500" }, "2500歩"],
+  ["all components", { walkMinutes: "20", walkSeconds: "10", distance: "2.5", walkSteps: "2500" }, "20:10,2.5km,2500歩"],
+  ["leading zero seconds", { walkMinutes: "27", walkSeconds: "05" }, "27:05"],
+  ["legacy integer-valued decimal seconds", { walkMinutes: "27", walkSeconds: "5.0" }, "27:05"]
+];
+for (const [name, values, expected] of summaryWalkCases) {
+  test(`monthly walk summary: ${name}`, () => {
+    const records = { "2032-10-18": day(values) }, before = JSON.stringify(records);
+    assert.equal(history.summaryGroups(history.describe(records, "2032-10-18"))[2][0], `散歩：${expected}`);
+    assert.equal(JSON.stringify(records), before);
+  });
+}
+
+for (const [name, values, expected] of [
+  ["both", { weight: "55.5", bodyFat: "16.5" }, "55.5kg,16.5%"],
+  ["weight only", { weight: "55.5" }, "55.5kg"],
+  ["body fat only", { bodyFat: "16.5" }, "16.5%"],
+  ["blank", {}, "なし"],
+  ["explicit zeros", { weight: "0", bodyFat: "0" }, "0kg,0%"],
+  ["basal only", { basal: "1300" }, "なし"],
+  ["decimal strings unchanged", { weight: "51.2300", bodyFat: "16.5000" }, "51.2300kg,16.5000%"]
+]) {
+  test(`monthly body summary: ${name}`, () => {
+    const records = { "2032-10-18": day(values) }, before = JSON.stringify(records);
+    const detail = history.describe(records, "2032-10-18");
+    assert.equal(history.summaryGroups(detail)[2][1], `身体：${expected}`);
+    assert.equal(detail.fields.find((field) => field.key === "basal").value, records["2032-10-18"].basal);
+    assert.equal(JSON.stringify(records), before);
+  });
+}
+
+test("monthly warnings use existing validation and never display absent or invalid fields as none", () => {
+  for (const key of ["kids", "walkMinutes", "walkSeconds", "distance", "walkSteps", "weight", "bodyFat"]) {
+    for (const mode of ["missing", "invalid"]) {
+      const entry = day();
+      if (mode === "missing") delete entry[key]; else entry[key] = key === "kids" ? "false" : -1;
+      const records = { "2032-10-18": entry }, before = JSON.stringify(records);
+      const detail = history.describe(records, "2032-10-18"), groups = history.summaryGroups(detail);
+      assert.equal(detail.kind, "review");
+      assert.equal(key === "kids" ? groups[0][1] : key === "weight" || key === "bodyFat" ? groups[2][1] : groups[2][0],
+        `${key === "kids" ? "子供" : key === "weight" || key === "bodyFat" ? "身体" : "散歩"}：要確認`);
+      assert.equal(JSON.stringify(records), before);
+    }
+  }
+});
+
+test("monthly children wording keeps true and false as original booleans", () => {
+  for (const kids of [true, false]) {
+    const entry = Object.freeze(day({ kids })), records = Object.freeze({ "2032-10-18": entry });
+    const detail = history.describe(records, "2032-10-18");
+    assert.equal(history.summaryGroups(detail)[0][1], `子供：${kids ? "あり" : "なし"}`);
+    assert.equal(detail.fields.find((field) => field.key === "kids").text, kids ? "あり" : "なし");
+    assert.equal(typeof entry.kids, "boolean"); assert.equal(entry.kids, kids);
+  }
+});
+
+
+test("monthly summary uses spaced ASCII slashes and unspaced ASCII measurement commas only", () => {
+  const detail = history.describe({ "2032-10-18": day({ work: "出社", kids: true, standing: 15, squat: 10, walkMinutes: "27", walkSeconds: "15", distance: "1.98", walkSteps: "2464", weight: "55.5", bodyFat: "16.5" }) }, "2032-10-18");
+  assert.deepEqual(history.summaryGroups(detail), [
+    ["勤務：出社", "子供：あり", "スタンディング：15"],
+    ["スクワット：10回", "足踏み：0回", "プランク：0秒"],
+    ["散歩：27:15,1.98km,2464歩", "身体：55.5kg,16.5%"]
+  ]);
+  const summary = history.summary(detail);
+  assert.equal(summary, history.summaryGroups(detail).flat().join(" / "));
+  assert.doesNotMatch(summary, /／|、|\s,|,\s|\s{2}/);
 });
