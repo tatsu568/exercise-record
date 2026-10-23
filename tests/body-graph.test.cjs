@@ -218,7 +218,7 @@ for (const width of [320, 375, 390, 430]) {
 test("tiny, single-day, year-crossing and maximum-length tick ranges are safe", () => {
   assert.equal(graph.makeXTicks(range, 20).length, 1);
   assert.equal(graph.makeXTicks({ start: range.start, end: range.start }, 300)[0].x, 150);
-  assert.match(graph.makeXTicks({ start: "2031-12-01", end: "2032-01-31" }, 300)[0].label, /^203[12]\//);
+  assert.match(graph.makeXTicks({ start: "2031-12-01", end: "2032-01-31" }, 300)[0].label, /^3[12]\//);
   assert.ok(graph.makeXTicks({ start: "0001-01-01", end: "9999-12-31" }, 160).length >= 1);
 });
 
@@ -341,4 +341,110 @@ test("standalone browser module loads and calculates with forbidden platform get
   api.calculatePeriod("3m", { today: "2032-05-31" }); api.selectionInfo(data.weight); api.adjacentMeasurement(data.weight, 0, 1);
   assert.equal(accesses, 0); assert.ok(Object.isFrozen(api));
   assert.doesNotMatch(source, /exercise-record\.entries\.v1|\.setItem\(|\.getItem\(|\.removeItem\(/);
+});
+
+test("one-month labels target five distributed calendar dates including both ends", () => {
+  const bounds = graph.rollingPeriod("2026-10-22", 1);
+  assert.deepEqual(graph.makeXTicks(bounds, 247, { minLabelSpacing: 40 }).map((tick) => tick.label), ["9/23", "9/30", "10/8", "10/15", "10/22"]);
+});
+
+for (const width of [197, 252, 267, 307]) for (const [name, bounds] of [
+  ["1m", graph.rollingPeriod("2032-10-22", 1)], ["3m", graph.rollingPeriod("2032-10-22", 3)],
+  ["6m", graph.rollingPeriod("2032-10-22", 6)], ["1y", graph.rollingPeriod("2032-10-22", 12)],
+  ["all", { start: "2030-01-17", end: "2036-10-22" }], ["custom", { start: "2031-12-10", end: "2032-04-19" }]
+]) test(`adaptive ${name} ticks fill ${width}px without changing bounds, points, or coordinates`, () => {
+  const crossYear = bounds.start.slice(0, 4) !== bounds.end.slice(0, 4);
+  const spacing = Math.max(crossYear ? 105 : 80, width / 3), original = JSON.stringify(bounds);
+  const values = series([[bounds.start, "56.2"], [graph.addDays(bounds.start, 1), "56.1"], [bounds.end, "55.9"]]);
+  const before = JSON.stringify(values), data = graph.buildChartData(values, bounds, target, { field: "weight", width, height: 180, minLabelSpacing: spacing });
+  assert.ok(data.xTicks.length >= 2 && data.xTicks.length <= 4);
+  for (const [index, tick] of data.xTicks.entries()) {
+    assert.equal(tick.x, graph.daysBetween(bounds.start, tick.date) / graph.daysBetween(bounds.start, bounds.end) * width);
+    assert.ok(tick.date >= bounds.start && tick.date <= bounds.end);
+    if (index) assert.ok(tick.x - data.xTicks[index - 1].x >= spacing - 1e-9);
+    if (crossYear && (!index || tick.date.slice(0, 4) !== data.xTicks[index - 1].date.slice(0, 4))) assert.match(tick.label, /^\d{2}\//);
+    else assert.match(tick.label, /^\d{1,2}\/\d{1,2}$/);
+  }
+  assert.equal(data.points.length, 3); assert.equal(data.points[0].x, 0); assert.equal(data.points[2].x, width);
+  assert.ok(Math.abs(data.points[1].x - width / graph.daysBetween(bounds.start, bounds.end)) < 1e-9);
+  assert.equal(data.summary.change, "-0.3"); assert.equal(JSON.stringify(bounds), original); assert.equal(JSON.stringify(values), before);
+});
+
+for (const [mode, bounds] of [
+  ["1m", graph.rollingPeriod("2032-10-22", 1)], ["3m", graph.rollingPeriod("2032-10-22", 3)],
+  ["6m", graph.rollingPeriod("2032-10-22", 6)], ["1y", graph.rollingPeriod("2032-10-22", 12)],
+  ["all", { start: "2030-01-17", end: "2036-10-22" }], ["custom", { start: "2031-12-10", end: "2032-04-19" }]
+]) test(`five ${mode} ticks retain exact dates, day spacing and all measurement points`, () => {
+  for (const width of [197, 252, 267, 307]) {
+    const ticks = graph.makeXTicks(bounds, width, { minLabelSpacing: 40 });
+    assert.equal(ticks.length, 5); assert.equal(ticks[0].date, bounds.start); assert.equal(ticks[4].date, bounds.end);
+    const before = JSON.stringify(bounds), records = {};
+    for (let index = 0; index <= graph.daysBetween(bounds.start, bounds.end); index++) records[graph.addDays(bounds.start, index)] = day({ weight: "56.2" });
+    const extracted = graph.extractMeasurements(records).weight, chart = graph.buildChartData(extracted, bounds, target, { field: "weight", width, height: 180, minLabelSpacing: 40 });
+    for (const tick of ticks) assert.equal(tick.x, graph.calculateX(tick.date, bounds, width));
+    assert.equal(chart.points.length, extracted.length); assert.equal(chart.summary.change, "0");
+    assert.equal(JSON.stringify(bounds), before);
+  }
+});
+
+test("year-crossing labels use zero-padded two-digit years while retaining complete date keys", () => {
+  const bounds = { start: "2025-10-23", end: "2026-10-22" }, ticks = graph.makeXTicks(bounds, 300, { minLabelSpacing: 1 });
+  assert.deepEqual(ticks.map((tick) => tick.label), ["25/10/23", "26/1/22", "4/23", "7/23", "10/22"]);
+  assert.equal(graph.makeXTicks({ start: "2005-12-31", end: "2006-01-01" }, 300, { minLabelSpacing: 1 })[0].label, "05/12/31");
+  assert.equal(graph.makeXTicks({ start: "2032-05-01", end: "2032-05-31" }, 300)[0].label, "5/1");
+  assert.equal(ticks[0].date, bounds.start); assert.equal(ticks[4].date, bounds.end);
+});
+
+test("same-year axes keep month/day labels even at the first tick", () => {
+  const ticks = graph.makeXTicks({ start: "2032-01-03", end: "2032-11-23" }, 320, { minLabelSpacing: 1 });
+  assert.equal(ticks.length, 5);
+  assert.ok(ticks.every((tick) => tick.label === `${graph.parseDate(tick.date).month}/${graph.parseDate(tick.date).day}`));
+});
+
+test("multi-year axes show the year only at the first displayed tick of each new year", () => {
+  const bounds = { start: "2030-10-23", end: "2032-02-22" };
+  const ticks = graph.makeXTicks(bounds, 320, { minLabelSpacing: 1 });
+  assert.deepEqual(ticks.map((tick) => tick.label.split("/").length), [3, 3, 2, 2, 3]);
+  for (const [index, tick] of ticks.entries()) {
+    const { year, month, day } = graph.parseDate(tick.date);
+    const yearChanged = !index || year !== graph.parseDate(ticks[index - 1].date).year;
+    assert.equal(tick.label, (yearChanged ? `${String(year % 100).padStart(2, "0")}/` : "") + `${month}/${day}`);
+    assert.equal(tick.x, graph.calculateX(tick.date, bounds, 320));
+  }
+});
+
+test("year annotations are recalculated after thinning and preserve single-tick context", () => {
+  const bounds = { start: "2030-10-23", end: "2032-02-22" };
+  for (const maxTicks of [5, 4, 3, 2, 1]) {
+    const ticks = graph.makeXTicks(bounds, 320, { minLabelSpacing: 1, maxTicks });
+    assert.equal(ticks.length, maxTicks);
+    for (const [index, tick] of ticks.entries()) {
+      assert.equal(tick.label.split("/").length, !index || tick.date.slice(0, 4) !== ticks[index - 1].date.slice(0, 4) ? 3 : 2);
+    }
+  }
+  const boundary = graph.makeXTicks({ start: "2099-12-31", end: "2100-01-01" }, 320, { minLabelSpacing: 1 });
+  assert.deepEqual(boundary.map((tick) => tick.label), ["99/12/31", "00/1/1"]);
+});
+
+test("short ranges avoid duplicate dates and narrow axes reduce count without losing boundaries", () => {
+  for (let days = 0; days <= 5; days++) {
+    const bounds = { start: "2032-02-28", end: graph.addDays("2032-02-28", days) };
+    const ticks = graph.makeXTicks(bounds, 300, { minLabelSpacing: 1 });
+    assert.equal(ticks.length, Math.min(5, days + 1)); assert.equal(new Set(ticks.map((tick) => tick.date)).size, ticks.length);
+    assert.equal(ticks[0].date, bounds.start); assert.equal(ticks.at(-1).date, bounds.end);
+  }
+  const bounds = graph.rollingPeriod("2032-10-22", 3);
+  assert.equal(graph.makeXTicks(bounds, 160, { minLabelSpacing: 60 }).length, 3);
+  for (const maxTicks of [0, 6, 2.5, NaN]) assert.throws(() => graph.makeXTicks(bounds, 300, { maxTicks }));
+});
+
+test("short custom dates, narrow axes, leap days and maximum ranges keep valid separated labels", () => {
+  for (const bounds of [{ start: "2032-02-29", end: "2032-02-29" }, { start: "2032-02-28", end: "2032-03-02" },
+    { start: "0001-01-01", end: "9999-12-31" }]) for (const width of [20, 80, 160, 307]) {
+    const ticks = graph.makeXTicks(bounds, width, { minLabelSpacing: 80 }); assert.ok(ticks.length >= 1);
+    for (const [index, tick] of ticks.entries()) {
+      assert.ok(Number.isFinite(tick.x) && tick.x >= 0 && tick.x <= width);
+      if (index) assert.ok(tick.x - ticks[index - 1].x >= 80 - 1e-9);
+    }
+  }
 });

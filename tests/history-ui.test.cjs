@@ -423,7 +423,7 @@ test("an insecure HTTP context does not register the Service Worker", () => {
   }
 });
 
-test("offline cache includes exact versioned asset URLs and keeps the existing cache lifecycle", async () => {
+test("v17 keeps existing assets offline and explicitly identifies deferred STEP 3 graph assets", async () => {
   const origin = "https://example.test/exercise-record/", events = {}, saved = new Map(), deleted = [];
   const httpCache = new Map([[new URL("script.js", origin).href, "old public input script"]]);
   const downloads = [];
@@ -457,13 +457,22 @@ test("offline cache includes exact versioned asset URLs and keeps the existing c
   assert.equal(downloads.length, 11);
   const refs = [...html.matchAll(/<script\b[^>]*src="([^"]+)"/g)].map((match) => match[1]);
   refs.push(/<link rel="stylesheet" href="([^"]+)"/.exec(html)[1]);
+  // STEP 3 must not alter the public cache. STEP 6/7 must add these assets
+  // before publication; their offline failure here is intentional and checked.
+  const deferred = ["body-graph.js", "app-navigation.js", "graph-view.js"];
+  assert.deepEqual(refs.filter((reference) => deferred.includes(reference)), deferred);
   for (const reference of refs) {
     const url = new URL(reference, origin);
     events.fetch({ request: { method: "GET", url: url.href }, respondWith: (promise) => { pending = promise; } });
+    if (deferred.includes(reference)) {
+      assert.equal(saved.has(url.href), false);
+      await assert.rejects(pending, /offline/);
+      continue;
+    }
     const response = await pending; assert.equal(response.ok, true);
     assert.equal(response.body, fs.readFileSync(path.join(root, url.pathname.slice("/exercise-record/".length)), "utf8"));
   }
-  assert.equal(networkCalls, 0);
+  assert.equal(networkCalls, deferred.length);
   events.activate({ waitUntil: (promise) => { pending = promise; } }); await pending;
   assert.deepEqual(deleted, ["exercise-record-v16"]); assert(skipped && claimed);
 });

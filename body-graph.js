@@ -192,37 +192,26 @@
     return span === 0 ? width / 2 : offset / span * width;
   }
 
-  function makeXTicks(range, width, { minLabelSpacing = 80 } = {}) {
+  function makeXTicks(range, width, { minLabelSpacing = 80, maxTicks = 5 } = {}) {
     dimension(width); dimension(minLabelSpacing);
+    if (!Number.isInteger(maxTicks) || maxTicks < 1 || maxTicks > 5) throw new RangeError("日付目盛りの上限は1〜5個です");
     customPeriod(range.start, range.end);
-    const span = daysBetween(range.start, range.end), capacity = Math.max(1, Math.floor(width / minLabelSpacing) + 1);
+    const span = daysBetween(range.start, range.end), capacity = Math.min(maxTicks, span + 1, Math.max(1, Math.floor(width / minLabelSpacing) + 1));
     const crossYear = range.start.slice(0, 4) !== range.end.slice(0, 4);
-    const makeTick = (date) => {
+    const makeTick = (date, previousDate) => {
       const { year, month, day } = parseDate(date);
-      return { date, x: calculateX(date, range, width), label: crossYear ? `${year}/${month}/${day}` : `${month}/${day}` };
+      const showYear = crossYear && (!previousDate || date.slice(0, 4) !== previousDate.slice(0, 4));
+      return { date, x: calculateX(date, range, width), label: showYear ? `${String(year % 100).padStart(2, "0")}/${month}/${day}` : `${month}/${day}` };
     };
     if (span === 0 || capacity === 1) return [makeTick(range.end)];
-    const desired = Math.max(span <= 35 ? 7 : span <= 100 ? 14 : span <= 200 ? 28 : span <= 400 ? 56 : 1, span / (capacity - 1));
-    let dates = [];
-    if (desired <= 14) {
-      const step = desired <= 7 ? 7 : 14;
-      for (let day = 0; day <= span; day += step) dates.push(addDays(range.start, day));
-    } else {
-      const months = [1, 2, 3, 6, 12, 24, 60, 120, 600, 1200, 12000].find((count) => count * 28 >= desired);
-      const { year, month } = parseDate(range.start), firstIndex = (year - 1) * 12 + month - 1;
-      for (let index = Math.ceil(firstIndex / months) * months; index < 9999 * 12; index += months) {
-        const date = key(Math.floor(index / 12) + 1, index % 12 + 1, 1);
-        if (date > range.end) break;
-        if (date >= range.start) dates.push(date);
-      }
+    // Round dates, then derive their exact calendar coordinates. If rounding
+    // leaves insufficient spacing, retry fewer ticks without dropping an end.
+    for (let count = capacity; count >= 2; count--) {
+      const dates = Array.from({ length: count }, (_, index) => addDays(range.start, Math.round(span * index / (count - 1))));
+      const ticks = dates.map((date, index) => makeTick(date, dates[index - 1]));
+      if (ticks.every((tick, index) => !index || tick.x - ticks[index - 1].x >= minLabelSpacing - 1e-9)) return ticks;
     }
-    if (!dates.length) dates = [range.end];
-    const ticks = [];
-    for (const date of dates) {
-      const tick = makeTick(date);
-      if (!ticks.length || tick.x - ticks[ticks.length - 1].x >= minLabelSpacing - 1e-9) ticks.push(tick);
-    }
-    return ticks;
+    return [makeTick(range.end)];
   }
 
   function validateTarget(target) {

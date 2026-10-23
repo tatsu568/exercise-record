@@ -216,6 +216,7 @@
 
   function lockForRestore(locked) {
     document.querySelector("#history-show").disabled = locked;
+    document.querySelector("#graph-show").disabled = locked;
     if (locked) {
       clearTimeout(saveTimer);
       document.querySelector("#save-status").textContent = "復元の確認中：通常入力を一時停止しています";
@@ -1044,11 +1045,11 @@
     }
   }
 
-  // History navigation reads saved snapshots directly, never switchDate (which saves).
+  // Non-input screens share this browsing guard; never navigate via switchDate.
   window.RecordHistoryInput = Object.freeze({
     canBrowse() {
-      if (restoreSession) return "復元・CSV取り込みの確認を閉じてから履歴を開いてください";
-      if (hasUnsavedChanges) return "未保存の入力があります。入力内容を控え、保存エラーを解消してから履歴を開いてください";
+      if (restoreSession) return "復元・CSV取り込みの確認を閉じてから画面を切り替えてください";
+      if (hasUnsavedChanges) return "未保存の入力があります。入力内容を控え、保存エラーを解消してから画面を切り替えてください";
       return "";
     },
     notify(message) { showToast(message, 5000); },

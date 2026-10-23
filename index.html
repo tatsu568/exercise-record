@@ -22,8 +22,9 @@
     </header>
 
     <nav class="screen-navigation" aria-label="画面切り替え">
-      <button id="input-show" type="button" aria-controls="input-screen" aria-pressed="true">記録を入力</button>
-      <button id="history-show" type="button" aria-controls="history-screen" aria-pressed="false">履歴を見る</button>
+      <button id="input-show" type="button" aria-controls="input-screen" aria-pressed="true">入力</button>
+      <button id="history-show" type="button" aria-controls="history-screen" aria-pressed="false">履歴</button>
+      <button id="graph-show" type="button" aria-controls="graph-screen" aria-pressed="false">グラフ</button>
     </nav>
     <div id="input-screen">
     <fieldset id="entry-fields" class="entry-fields">
@@ -170,6 +171,53 @@
         <button id="history-edit" class="button backup-button" type="button">この日を入力画面で開く</button>
       </section>
     </section>
+    <section id="graph-screen" aria-labelledby="graph-heading" hidden>
+      <h2 id="graph-heading" tabindex="-1">身体データの推移</h2>
+      <section class="card graph-controls" aria-label="グラフの表示期間">
+        <label class="graph-mode-label" for="graph-period">表示期間</label>
+        <select id="graph-period">
+          <option value="1m">1か月</option><option value="3m" selected>3か月</option>
+          <option value="6m">6か月</option><option value="1y">1年</option>
+          <option value="all">全期間</option><option value="custom">日付指定</option>
+        </select>
+        <div id="graph-custom" class="graph-custom" hidden>
+          <label for="graph-start-date">開始日<input id="graph-start-date" type="date"></label>
+          <label for="graph-end-date">終了日<input id="graph-end-date" type="date"></label>
+          <button id="graph-apply-dates" class="date-step" type="button">期間を適用</button>
+        </div>
+        <p id="graph-range" class="graph-range" aria-live="polite"></p>
+        <div class="graph-period-actions">
+          <button id="graph-previous" class="date-step" type="button">前へ</button>
+          <button id="graph-next" class="date-step" type="button">次へ</button>
+          <button id="graph-latest" class="date-step" type="button">最新に戻る</button>
+        </div>
+        <p id="graph-status" class="graph-status" role="status" aria-live="polite"></p>
+      </section>
+      <section class="card graph-card" aria-labelledby="graph-weight-heading">
+        <h3 id="graph-weight-heading">体重 <small>kg</small></h3>
+        <p id="graph-weight-goal" class="graph-goal"></p>
+        <div id="graph-weight-plot" class="graph-plot"></div>
+        <p id="graph-weight-empty" class="graph-empty" hidden>この期間に測定記録はありません</p>
+        <div id="graph-weight-summary" class="graph-summary" hidden></div>
+        <p id="graph-weight-selected" class="graph-selected" aria-live="polite"></p>
+        <div class="graph-point-actions">
+          <button id="graph-weight-previous" class="date-step" type="button" disabled>前の測定</button>
+          <button id="graph-weight-next" class="date-step" type="button" disabled>次の測定</button>
+        </div>
+      </section>
+      <section class="card graph-card" aria-labelledby="graph-bodyFat-heading">
+        <h3 id="graph-bodyFat-heading">体脂肪率 <small>%</small></h3>
+        <p id="graph-bodyFat-goal" class="graph-goal"></p>
+        <div id="graph-bodyFat-plot" class="graph-plot"></div>
+        <p id="graph-bodyFat-empty" class="graph-empty" hidden>この期間に測定記録はありません</p>
+        <div id="graph-bodyFat-summary" class="graph-summary" hidden></div>
+        <p id="graph-bodyFat-selected" class="graph-selected" aria-live="polite"></p>
+        <div class="graph-point-actions">
+          <button id="graph-bodyFat-previous" class="date-step" type="button" disabled>前の測定</button>
+          <button id="graph-bodyFat-next" class="date-step" type="button" disabled>次の測定</button>
+        </div>
+      </section>
+    </section>
   </main>
 
   <div id="input-toolbar" class="input-toolbar" aria-label="入力操作" hidden>
@@ -180,6 +228,9 @@
   <script src="numbers-csv.js" defer></script>
   <script src="script.js" defer></script>
   <script src="record-history.js?v=0.3-history-separators-20261021" defer></script>
+  <script src="body-graph.js" defer></script>
+  <script src="app-navigation.js" defer></script>
   <script src="history-view.js?v=0.3-history-separators-20261021" defer></script>
+  <script src="graph-view.js" defer></script>
 </body>
 </html>

@@ -5,7 +5,7 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   else {
     root.RecordHistoryView = api;
-    api.mount({ document, window, storage: localStorage, input: window.RecordHistoryInput });
+    api.mount({ document, window, storage: localStorage, input: window.RecordHistoryInput, navigation: root.RecordAppNavigation });
   }
 })(typeof globalThis !== "undefined" ? globalThis : this, function (model) {
   "use strict";
@@ -25,7 +25,7 @@
       ? [{ key: "walkTime", label: "散歩・時間", text, type: "string", missing, error }] : [field]);
   }
 
-  function mount({ document, window, storage, input, today = () => model.localToday() }) {
+  function mount({ document, window, storage, input, navigation, today = () => model.localToday() }) {
     const get = (id) => document.querySelector(`#${id}`);
     const node = (tag, text, className) => {
       const item = document.createElement(tag);
@@ -54,6 +54,7 @@
       get("history-status").dataset.error = String(error);
     }
     function close() {
+      if (navigation) return navigation.show("input");
       ++inputScrollSequence;
       state.open = false; input.setBrowsing(false);
       get("history-screen").hidden = true; get("input-screen").hidden = false;
@@ -151,21 +152,31 @@
       }
       render();
     }
+    function activate() {
+      ++inputScrollSequence;
+      if (!state.year) {
+        const date = today();
+        [state.year, state.month] = date.split("-").map(Number); state.selected = date;
+      }
+      state.open = true; refresh();
+    }
     function open() {
+      if (navigation) return navigation.show("history");
       const error = input.canBrowse();
       if (error) { input.notify(error); return; }
-      ++inputScrollSequence;
-      const date = today();
-      [state.year, state.month] = date.split("-").map(Number); state.selected = date; state.open = true;
       input.setBrowsing(true);
       get("input-toolbar").hidden = true;
       document.activeElement?.blur();
       get("input-screen").hidden = true; get("history-screen").hidden = false;
       get("history-show").setAttribute("aria-pressed", "true"); get("input-show").setAttribute("aria-pressed", "false");
-      refresh(); get("history-heading").focus({ preventScroll: true });
+      activate(); get("history-heading").focus({ preventScroll: true });
     }
-    get("history-show").addEventListener("click", open);
-    get("input-show").addEventListener("click", () => { if (state.open) close(); });
+    if (navigation) navigation.register("history", { heading: "history-heading", onShow: activate,
+      onHide() { ++inputScrollSequence; state.open = false; } });
+    else {
+      get("history-show").addEventListener("click", open);
+      get("input-show").addEventListener("click", () => { if (state.open) close(); });
+    }
     get("history-detail-close").addEventListener("click", () => {
       state.selected = null; render(); get("history-month").focus({ preventScroll: true });
       get("history-month").scrollIntoView({ block: "start", behavior: "auto" });
