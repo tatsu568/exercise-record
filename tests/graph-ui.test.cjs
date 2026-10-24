@@ -351,10 +351,10 @@ test("dense charts keep 500 points and their latest selection", () => {
   assert.equal(a.graphView.getState().selected.weight, "2030-01-01"); assert.equal(a.store.writes, 0);
 });
 
-test("targets can be supplied by future settings without persisting anything", () => {
+test("targets supplied through the settings API do not persist records", () => {
   const a = app(fixture(), { targets: () => ({ weight: { min: 54, max: 55 }, bodyFat: { min: 17, max: 18 } }) }); a.open();
   assert.equal(a.get("graph-weight-goal").textContent, "目標：54.0〜55.0kg"); assert.equal(a.store.writes, 0);
-  assert.doesNotMatch(html, /id="settings-show"/);
+  assert.match(html, /id="settings-show"/);
 });
 
 for (const width of [320, 375, 390, 430]) test(`all six periods retain readable date ticks and every point at ${width}px`, () => {

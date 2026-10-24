@@ -6,7 +6,8 @@
   if (commonJS) module.exports = api;
   else {
     root.BodyGraphView = api;
-    root.RecordGraphView = api.mount({ document, window, storage: localStorage, navigation: root.RecordAppNavigation });
+    root.RecordGraphView = api.mount({ document, window, storage: localStorage, navigation: root.RecordAppNavigation,
+      getTargets: () => root.RecordSettings.getTargets(), getTargetStatus: () => root.RecordSettings.read("goals").error });
   }
 })(typeof globalThis !== "undefined" ? globalThis : this, function (model, history) {
   "use strict";
@@ -29,7 +30,7 @@
     return nearest;
   }
 
-  function mount({ document, window, storage, navigation, today = () => model.localDateString(new Date()), getTargets = () => INITIAL_TARGETS }) {
+  function mount({ document, window, storage, navigation, today = () => model.localDateString(new Date()), getTargets = () => INITIAL_TARGETS, getTargetStatus = () => "" }) {
     const get = (id) => document.querySelector(`#${id}`);
     const node = (tag, text, className) => {
       const item = document.createElement(tag);
@@ -206,6 +207,7 @@
       if (resetSelection) state.selected = { weight: null, bodyFat: null };
       controls();
       const targets = getTargets();
+      get("graph-settings-status").textContent = getTargetStatus();
       for (const field of FIELDS) renderField(field, targets);
     }
     function showError(error) {
@@ -281,7 +283,7 @@
       });
       for (const field of FIELDS) observer.observe(get(`graph-${field}-plot`));
     }
-    window.addEventListener("storage", (event) => { if (event.key === KEY || event.key === null) refresh(); });
+    window.addEventListener("storage", (event) => { if (event.key === KEY || event.key === "exercise-record.goals.v1" || event.key === null) refresh(); });
     window.addEventListener("focus", refresh); window.addEventListener("pageshow", refresh);
     return Object.freeze({ open: () => navigation.show("graph"), refresh,
       getState: () => ({ mode: state.mode, anchor: state.anchor, offset: state.offset, range: state.range && { ...state.range }, selected: { ...state.selected }, error: state.error }) });

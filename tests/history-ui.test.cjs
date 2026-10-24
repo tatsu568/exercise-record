@@ -423,7 +423,7 @@ test("an insecure HTTP context does not register the Service Worker", () => {
   }
 });
 
-test("v17 keeps existing assets offline and explicitly identifies deferred STEP 3 graph assets", async () => {
+test("v17 keeps existing assets offline and explicitly identifies deferred STEP 3/4 assets", async () => {
   const origin = "https://example.test/exercise-record/", events = {}, saved = new Map(), deleted = [];
   const httpCache = new Map([[new URL("script.js", origin).href, "old public input script"]]);
   const downloads = [];
@@ -457,9 +457,12 @@ test("v17 keeps existing assets offline and explicitly identifies deferred STEP 
   assert.equal(downloads.length, 11);
   const refs = [...html.matchAll(/<script\b[^>]*src="([^"]+)"/g)].map((match) => match[1]);
   refs.push(/<link rel="stylesheet" href="([^"]+)"/.exec(html)[1]);
-  // STEP 3 must not alter the public cache. STEP 6/7 must add these assets
+  // STEP 3/4 must not alter the public cache. STEP 6/7 must add these assets
   // before publication; their offline failure here is intentional and checked.
-  const deferred = ["body-graph.js", "app-navigation.js", "graph-view.js"];
+  const cssRef = /<link rel="stylesheet" href="([^"]+)"/.exec(html)[1];
+  const deferred = ["body-graph.js", "app-navigation.js", "app-settings.js", "settings-view.js", "graph-view.js", cssRef];
+  assert.equal(saved.has(new URL(cssRef, origin).href), false);
+  assert.equal(saved.get(new URL("style.css?v=0.3-history-separators-20261021", origin).href).body, fs.readFileSync(path.join(root, "style.css"), "utf8"));
   assert.deepEqual(refs.filter((reference) => deferred.includes(reference)), deferred);
   for (const reference of refs) {
     const url = new URL(reference, origin);
@@ -606,10 +609,12 @@ test("monthly ASCII formatting does not alter detail warning punctuation or save
   assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
 });
 
-test("updated monthly assets use one shared new identifier and keep unpublished cache v17", () => {
+test("history asset URLs keep their identifier while optical CSS awaits the release cache update", () => {
   const version = "0.3-history-separators-20261021", worker = fs.readFileSync(path.join(root, "service-worker.js"), "utf8");
-  for (const file of ["record-history.js", "history-view.js", "style.css"]) {
+  for (const file of ["record-history.js", "history-view.js"]) {
     assert(html.includes(`${file}?v=${version}`)); assert(worker.includes(`./${file}?v=${version}`));
   }
+  assert(html.includes("style.css?v=0.4-gear-optical-20261024-up2"));
+  assert(worker.includes(`./style.css?v=${version}`));
   assert(worker.includes('const CACHE_NAME = "exercise-record-v17"'));
 });

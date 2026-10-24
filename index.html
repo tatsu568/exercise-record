@@ -11,7 +11,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="style.css?v=0.3-history-separators-20261021">
+  <link rel="stylesheet" href="style.css?v=0.4-gear-optical-20261024-up2">
   <title>運動記録</title>
 </head>
 <body>
@@ -19,6 +19,12 @@
     <header class="page-header">
       <div class="brand-mark" aria-hidden="true">○</div>
       <div><h1>運動記録</h1><p>生活・運動・身体データ</p></div>
+      <button id="settings-show" class="date-step settings-gear" type="button" aria-label="設定を開く" aria-controls="settings-screen">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M9.5 2.75h5l.5 2.5 1.5.9 2.4-.8 2.5 4.3-1.9 1.7v1.3l1.9 1.7-2.5 4.3-2.4-.8-1.5.9-.5 2.5h-5l-.5-2.5-1.5-.9-2.4.8-2.5-4.3 1.9-1.7v-1.3L2.6 9.65l2.5-4.3 2.4.8 1.5-.9Z" />
+          <circle cx="12" cy="12" r="3.25" />
+        </svg>
+      </button>
     </header>
 
     <nav class="screen-navigation" aria-label="画面切り替え">
@@ -192,6 +198,7 @@
           <button id="graph-latest" class="date-step" type="button">最新に戻る</button>
         </div>
         <p id="graph-status" class="graph-status" role="status" aria-live="polite"></p>
+        <p id="graph-settings-status" class="settings-status" role="status" aria-live="polite"></p>
       </section>
       <section class="card graph-card" aria-labelledby="graph-weight-heading">
         <h3 id="graph-weight-heading">体重 <small>kg</small></h3>
@@ -218,6 +225,41 @@
         </div>
       </section>
     </section>
+    <section id="settings-screen" aria-labelledby="settings-heading" hidden>
+      <div class="settings-header"><h2 id="settings-heading" tabindex="-1">設定</h2><button id="settings-back" class="date-step" type="button">戻る</button></div>
+      <p class="settings-help">設定はこのブラウザ内に保存されます。Safariとホーム画面アプリでは保存領域が異なる場合があります。設定は記録のJSONバックアップには含まれません。</p>
+      <section id="settings-leave-confirm" class="card settings-leave" aria-labelledby="settings-leave-heading" hidden>
+        <h3 id="settings-leave-heading">未保存の変更があります</h3><p>変更を破棄して戻りますか？</p>
+        <div class="settings-actions"><button id="settings-continue" class="date-step" type="button">編集を続ける</button><button id="settings-discard" class="date-step" type="button">変更を破棄して戻る</button></div>
+      </section>
+      <section class="card settings-group" aria-labelledby="settings-goals-heading">
+        <h3 id="settings-goals-heading">目標設定</h3>
+        <div id="settings-goals-summary" class="settings-summary"></div>
+        <button id="settings-goals-edit" class="date-step" type="button">編集</button>
+        <div id="settings-goals-form" hidden>
+          <p class="settings-help">小数点以下1桁まで入力できます。保存するまでグラフには反映されません。</p>
+          <div id="settings-goals-fields" class="settings-fields"></div>
+          <label id="settings-goals-repair" class="settings-repair" hidden><input id="settings-goals-repair-confirm" type="checkbox"><span>破損・未対応の設定を、このグループの入力値で置き換えることを確認しました。</span></label>
+          <div class="settings-actions"><button id="settings-goals-save" class="date-step settings-save" type="button">保存</button><button id="settings-goals-cancel" class="date-step" type="button">キャンセル</button></div>
+          <button id="settings-goals-reset" class="date-step settings-reset" type="button">目標設定を初期値に戻す</button>
+        </div>
+        <p id="settings-goals-status" class="settings-status" role="status" aria-live="polite"></p>
+      </section>
+      <section class="card settings-group" aria-labelledby="settings-attention-heading">
+        <h3 id="settings-attention-heading">注意判定設定</h3>
+        <p class="settings-help">入力値を確認するための条件です。この条件による注意表示は今後の更新で追加します。</p>
+        <div id="settings-attention-summary" class="settings-summary"></div>
+        <button id="settings-attention-edit" class="date-step" type="button">編集</button>
+        <div id="settings-attention-form" hidden>
+          <p class="settings-help">比較期間は1〜365日の整数、他の値は小数点以下1桁まで入力できます。</p>
+          <div id="settings-attention-fields" class="settings-fields"></div>
+          <label id="settings-attention-repair" class="settings-repair" hidden><input id="settings-attention-repair-confirm" type="checkbox"><span>破損・未対応の設定を、このグループの入力値で置き換えることを確認しました。</span></label>
+          <div class="settings-actions"><button id="settings-attention-save" class="date-step settings-save" type="button">保存</button><button id="settings-attention-cancel" class="date-step" type="button">キャンセル</button></div>
+          <button id="settings-attention-reset" class="date-step settings-reset" type="button">注意判定設定を初期値に戻す</button>
+        </div>
+        <p id="settings-attention-status" class="settings-status" role="status" aria-live="polite"></p>
+      </section>
+    </section>
   </main>
 
   <div id="input-toolbar" class="input-toolbar" aria-label="入力操作" hidden>
@@ -231,6 +273,8 @@
   <script src="body-graph.js" defer></script>
   <script src="app-navigation.js" defer></script>
   <script src="history-view.js?v=0.3-history-separators-20261021" defer></script>
+  <script src="app-settings.js" defer></script>
+  <script src="settings-view.js" defer></script>
   <script src="graph-view.js" defer></script>
 </body>
 </html>

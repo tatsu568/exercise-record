@@ -14,7 +14,7 @@
     let active = "input";
     const get = (id) => document.querySelector(`#${id}`);
 
-    // A later settings screen can register without a tab; no settings UI yet.
+    // Independent screens can register without adding a main tab.
     function register(name, options = {}) {
       const previous = views.get(name);
       const view = { screen: `${name}-screen`, tab: `${name}-show`, ...previous, ...options };
@@ -27,19 +27,20 @@
       const next = views.get(name);
       if (!next) return false;
       if (name === active) { next.onShow?.({ reenter: true }); return true; }
-      const blocked = input.canBrowse() || views.get(active)?.canLeave?.();
+      const blocked = input.canBrowse() || views.get(active)?.canLeave?.({ destination: name });
       if (blocked) { input.notify(blocked); return false; }
       views.get(active)?.onHide?.();
       // Establish the save guard before blur/hide can trigger input events.
       input.setBrowsing(name !== "input");
       get("input-toolbar").hidden = true;
       document.activeElement?.blur();
+      const from = active;
       active = name;
       for (const [id, view] of views) {
         get(view.screen).hidden = id !== active;
         if (view.tab) get(view.tab).setAttribute("aria-pressed", String(id === active));
       }
-      next.onShow?.({ reenter: false });
+      next.onShow?.({ reenter: false, from });
       if (next.heading) get(next.heading).focus({ preventScroll: true });
       return true;
     }
