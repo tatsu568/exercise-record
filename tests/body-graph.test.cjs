@@ -12,6 +12,24 @@ const target = Object.freeze({ min: 56, max: 56.9 });
 const range = Object.freeze({ start: "2032-05-01", end: "2032-05-31" });
 const freeze = (value) => { if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); } return value; };
 
+for (const [left, right, expected] of [["56", "56.00", 0], ["44.999999999999999999", "45", -1],
+  ["70.000000000000000001", "70", 1], ["9007199254740992", "9007199254740993", -1],
+  ["0", "3", -1], ["-0.1", "0", -1], ["1e-325", "0", 1], ["+5.6e1", "056.000", 0],
+  ["-0", "0", 0], ["-.000", "0e999999", 0], ["-0.100000000000000001", "-0.1", -1]]) {
+  test(`exact decimal comparison ${left} against ${right}`, () => {
+    assert.equal(graph.compareDecimals(left, right), expected);
+    assert.equal(graph.compareDecimals(right, left), expected === 0 ? 0 : -expected);
+  });
+}
+test("public measurement difference reuses exact arithmetic and validates measurement inputs", () => {
+  assert.equal(graph.measurementDifference("56.1", "59.099999999999999999"), "2.999999999999999999");
+  assert.equal(graph.measurementDifference("59.1", "56.1"), "-3");
+  assert.equal(graph.measurementDifference("56", "56.00"), "0");
+  for (const raw of ["", "0", "-1", "NaN", "Infinity", 56, null]) assert.throws(() => graph.measurementDifference(raw, "56"));
+  for (const raw of ["", " 56", "NaN", "Infinity", "1e309", 56, null]) assert.throws(() => graph.compareDecimals(raw, "56"));
+  assert.equal(graph.parseMeasurement("0"), null); assert.equal(graph.parseMeasurement("1e-325"), null);
+});
+
 test("independent extraction preserves raw strings and chronological order", () => {
   const records = { "2032-05-12": day({ weight: "56.00", bodyFat: "16.50" }), "2032-05-10": day({ weight: "55.9" }), "2032-05-11": day({ bodyFat: "16.1" }) };
   const result = graph.extractMeasurements(records);

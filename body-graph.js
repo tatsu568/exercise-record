@@ -68,9 +68,11 @@
   function decimalParts(raw) {
     const [mantissa, exponent = "0"] = raw.toLowerCase().replace(/^\+/, "").split("e");
     const fraction = mantissa.split(".")[1] || "";
-    let digits = mantissa.replace(".", "").replace(/^0+/, ""), power = Number(exponent) - fraction.length;
+    const negative = mantissa.startsWith("-");
+    let digits = mantissa.replace(/^-/, "").replace(".", "").replace(/^0+/, ""), power = Number(exponent) - fraction.length;
+    if (!digits) return { coefficient: 0n, power: 0 };
     while (digits.endsWith("0")) { digits = digits.slice(0, -1); power++; }
-    return { coefficient: BigInt(digits || "0"), power };
+    return { coefficient: BigInt((negative ? "-" : "") + digits), power };
   }
 
   function decimalText(coefficient, power) {
@@ -101,6 +103,21 @@
   function difference(first, last) {
     const a = decimalParts(first), b = decimalParts(last), power = Math.min(a.power, b.power);
     return decimalText(b.coefficient * 10n ** BigInt(b.power - power) - a.coefficient * 10n ** BigInt(a.power - power), power);
+  }
+
+  // Public exact arithmetic accepts the same positive numeric strings as points.
+  // Keep signed differences as text: converting them to Number loses boundaries.
+  function measurementDifference(first, last) {
+    if (!parseMeasurement(first) || !parseMeasurement(last)) throw new TypeError("正の有限な測定値文字列が必要です");
+    return difference(first, last);
+  }
+
+  // Arithmetic results may be zero, negative, or smaller than Number.MIN_VALUE.
+  // This is not a measurement-validity check; parseMeasurement remains unchanged.
+  function compareDecimals(left, right) {
+    if ([left, right].some((raw) => typeof raw !== "string" || !NUMBER_TEXT.test(raw) || !Number.isFinite(Number(raw)))) throw new TypeError("有限な十進数文字列が必要です");
+    const delta = difference(left, right);
+    return delta === "0" ? 0 : delta.startsWith("-") ? 1 : -1;
   }
 
   function extractMeasurements(records) {
@@ -288,7 +305,7 @@
   }
 
   return Object.freeze({ parseDate, dateFromDay, addDays, daysBetween, shiftMonths, localDateString,
-    parseMeasurement, sameMeasurement, extractMeasurements, customPeriod, rollingPeriod, allPeriod, calculatePeriod,
+    parseMeasurement, sameMeasurement, measurementDifference, compareDecimals, extractMeasurements, customPeriod, rollingPeriod, allPeriod, calculatePeriod,
     filterMeasurements, summarizeMeasurements, calculateX, makeXTicks, calculateYAxis, calculateY, calculateTargetBand,
     selectionInfo, adjacentMeasurement, buildChartData });
 });
