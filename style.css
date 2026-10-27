@@ -50,10 +50,17 @@ button { touch-action: manipulation; }
 @media (max-width: 350px) { .settings-fields { grid-template-columns: minmax(0, 1fr); } }
 .card { margin-bottom: 10px; padding: 14px; border: 1px solid rgba(32,37,34,.035); border-radius: 16px; background: var(--surface); box-shadow: 0 2px 8px rgba(31,47,37,.035); }
 .card h2 { margin: 0 0 10px; font-size: 17px; line-height: 1.3; }
-.date-card { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.date-card label { font-weight: 650; }
-.date-controls { display: flex; min-width: 0; align-items: center; gap: 6px; }
-.date-card input { width: 142px; min-width: 0; min-height: 44px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: white; font-size: 15px; }
+.date-card { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 6px 10px; min-width: 0; }
+.date-card label { font-weight: 650; white-space: nowrap; }
+.date-apply-actions { display: flex; grid-column: 1 / -1; gap: 6px; }
+.date-apply-actions[hidden], .date-status[hidden] { display: none; }
+.date-apply-actions button { flex: 1; min-width: 0; }
+.date-apply-actions button:disabled { opacity: .45; }
+.date-status { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.date-card input { display: flex; position: relative; align-items: center; justify-content: center; box-sizing: border-box; width: 142px; min-width: 0; max-width: 100%; justify-self: end; height: 34px; min-height: 34px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: white; font-size: 16px; line-height: 22px; text-align: center; -webkit-appearance: none; appearance: none; }
+.date-card input::-webkit-date-and-time-value { display: block; flex: 1; width: 100%; min-width: 0; margin: 0; padding: 0; text-align: center; }
+.date-card input::-webkit-datetime-edit { flex: 1; min-width: 0; padding: 0; text-align: center; }
+.date-card input::-webkit-calendar-picker-indicator { position: absolute; right: 7px; margin: 0; }
 .date-step { min-width: 48px; min-height: 44px; padding: 0 7px; border: 1px solid var(--line); border-radius: 11px; background: #fff; color: var(--accent); font-size: 13px; font-weight: 650; white-space: nowrap; }
 .choice-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
 .choice { min-height: 48px; border: 1px solid var(--line); border-radius: 11px; background: #fff; color: var(--ink); font-weight: 650; }
@@ -160,10 +167,11 @@ button { touch-action: manipulation; }
 .graph-status:empty { display: none; }
 .graph-status[data-error="true"] { color: #9a3b17; }
 .graph-card { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; align-items: baseline; }
-.graph-card > :not(h3):not(.graph-goal) { grid-column: 1 / -1; }
+.graph-card > :not(h3):not(.graph-meta) { grid-column: 1 / -1; }
+.graph-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; margin-bottom: 6px; }
 .graph-card h3 { margin: 0; font-size: 17px; white-space: nowrap; }
 .graph-card h3 small { color: var(--muted); font-size: 13px; font-weight: 400; }
-.graph-goal { min-width: 0; margin: 0 0 6px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.graph-goal { min-width: 0; margin: 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 .graph-plot svg { display: block; width: 100%; height: auto; touch-action: pan-y pinch-zoom; }
 .graph-target-band { fill: #28674f18; stroke: #28674f25; stroke-width: 1; }
 .graph-grid-line { stroke: var(--line); stroke-width: 1; }
@@ -182,7 +190,7 @@ button { touch-action: manipulation; }
 .graph-selected:empty { display: none; }
 .graph-point-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 #graph-screen button:disabled { opacity: .45; }
-.graph-attention-count { margin: 0 0 6px; color: #9a3b17; font-size: 13px; overflow-wrap: anywhere; }
+.graph-attention-count { min-width: 0; margin: 0; color: #9a3b17; font-size: 13px; overflow-wrap: anywhere; }
 .graph-attention-mark { fill: none; stroke: #ae4b19; stroke-width: 2; pointer-events: none; }
 .graph-attention-detail { min-width: 0; margin-bottom: 10px; padding: 10px; border: 1px solid #d8bc9f; border-radius: 8px; background: #fffaf2; font-size: 13px; overflow-wrap: anywhere; }
 .graph-attention-detail[hidden] { display: none; }
@@ -229,12 +237,9 @@ button { touch-action: manipulation; }
 .history-summary-values { --history-join-gap: .28em; }
 .history-summary-part { white-space: nowrap; }
 footer { padding: 2px 2px 4px; color: var(--muted); text-align: center; font-size: 12px; }
-#save-retry { margin-top: 8px; margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+#save-retry { margin: 8px 0; }
 .toast { position: fixed; z-index: 10; top: max(12px, env(safe-area-inset-top)); left: 50%; padding: 11px 17px; border: 1px solid #ffffff80; border-radius: 999px; background: #25372feF; color: white; box-shadow: 0 5px 18px #0002; font-size: 14px; font-weight: 650; opacity: 0; pointer-events: none; transform: translate(-50%, -8px); transition: opacity .18s ease, transform .18s ease; white-space: nowrap; }
 .toast.visible { opacity: 1; transform: translate(-50%, 0); }
-.input-toolbar { position: fixed; z-index: 8; right: 0; bottom: 0; left: 0; display: flex; justify-content: flex-end; padding: 8px max(16px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); border-top: 1px solid var(--line); background: #f8faf8f2; backdrop-filter: blur(14px); }
-.input-toolbar[hidden] { display: none; }
-.input-toolbar button { min-width: 82px; min-height: 42px; border: 0; border-radius: 10px; background: var(--accent); color: white; font-weight: 700; }
 @media (min-width: 520px) { .app-shell { padding-top: 24px; } .body-fields { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 380px) { .date-card { align-items: stretch; flex-direction: column; } .date-controls { width: 100%; } .date-controls input { flex: 1; width: 1px; } .stepper-row { align-items: flex-start; flex-direction: column; justify-content: center; gap: 5px; padding: 7px 0; } .stepper { width: 100%; justify-content: space-between; } }
+@media (max-width: 380px) { .stepper-row { align-items: flex-start; flex-direction: column; justify-content: center; gap: 5px; padding: 7px 0; } .stepper { width: 100%; justify-content: space-between; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }

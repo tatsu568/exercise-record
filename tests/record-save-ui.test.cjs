@@ -52,11 +52,13 @@ test("date change freezes original form, waits for save, and preserves original 
 });
 test("rapid second date navigation cannot redirect the pending first navigation", async () => {
   const locks = createLocks(), release = await hold(locks), a = instance({}, { locks });
+  a.get("#weight").value = "56.2"; const saving = a.hooks.saveCurrentEntry();
   const moving = a.hooks.switchDate(NEXT); assert.equal(await a.hooks.switchDate("2041-05-12"), false);
-  await release(); await moving; assert.equal(a.get("#record-date").value, NEXT);
+  await release(); await saving; await moving; assert.equal(a.get("#record-date").value, NEXT);
 });
 test("failed date navigation retains draft, original date and navigation protection", async () => {
   const a = instance(); a.store.fail = true; a.get("#weight").value = "56.2";
+  await a.hooks.saveCurrentEntry();
   assert.equal(await a.hooks.switchDate(NEXT), false);
   assert.equal(a.get("#record-date").value, DATE); assert.equal(a.get("#weight").value, "56.2"); assert.equal(a.store.raw, "{}");
   assert.equal(a.get("#entry-fields").disabled, false); assert.match(a.window.RecordHistoryInput.canBrowse(), /未保存/);
@@ -181,8 +183,111 @@ test("record input bridge survives a denied localStorage property without data l
   assert.equal(await a.hooks.saveCurrentEntry(), false); assert.equal(a.store.writes, 0);
   assert.equal(a.get("#weight").value, "56.2"); assert.match(a.window.RecordHistoryInput.canBrowse(), /未保存/);
 });
-test("retry control retains a touch target and space above the fixed input toolbar", () => {
+test("retry control keeps compact spacing after removal of the custom input toolbar", () => {
   const css = fs.readFileSync(path.join(__dirname, "../style.css"), "utf8");
-  assert.match(css, /#save-retry\s*\{[^}]*margin-bottom:\s*calc\(72px\s*\+\s*env\(safe-area-inset-bottom,\s*0px\)\)/);
+  assert.match(css, /#save-retry\s*\{[^}]*margin:\s*8px 0/);
   const a = instance(); assert.equal(a.get("#save-retry").hidden, true);
+});
+
+function selectCandidate(a, date) {
+  a.get("#record-date").value = date; a.get("#record-date").events.input(); a.get("#record-date").events.change();
+}
+function swipe(a, from = [150, 200], to = [270, 200], target = { closest: () => null }) {
+  a.window.innerWidth = 390;
+  const screen = a.get("#input-screen"), touch = ([clientX, clientY]) => ({ clientX, clientY });
+  screen.events.touchstart({ target, touches: [touch(from)] });
+  screen.events.touchmove({ touches: [touch(to)] });
+  return screen.events.touchend({ changedTouches: [touch(to)] });
+}
+
+test("date input/change only update a cancellable candidate and never change the displayed record", () => {
+  const a = instance({ [DATE]: day({ weight: "55" }), [NEXT]: day({ weight: "66" }) }), before = a.store.raw;
+  for (const id of ["#date-actions", "#date-apply", "#date-reset", "#date-status"]) assert.equal(a.get(id).hidden, true);
+  assert.equal(a.get("#date-heading").textContent, "日付");
+  selectCandidate(a, NEXT);
+  assert.equal(a.get("#record-date").value, NEXT); assert.equal(a.get("#weight").value, "55");
+  assert.equal(a.get("#date-heading").textContent, "変更先の日付");
+  for (const id of ["#date-actions", "#date-apply", "#date-reset", "#date-status"]) assert.equal(a.get(id).hidden, false);
+  assert.equal(a.get("#date-status").textContent, "現在の記録：2041/05/10");
+  assert.equal(a.get("#entry-fields").disabled, false); assert.equal(a.get("#date-apply").disabled, false);
+  assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
+  a.get("#date-reset").click(); assert.equal(a.get("#record-date").value, DATE); assert.equal(a.get("#date-reset").hidden, true);
+  assert.equal(a.get("#date-heading").textContent, "日付"); assert.equal(a.get("#date-actions").hidden, true); assert.equal(a.get("#date-status").hidden, true);
+  selectCandidate(a, NEXT); selectCandidate(a, DATE); assert.equal(a.get("#date-actions").hidden, true);
+  selectCandidate(a, ""); assert.equal(a.get("#date-apply").disabled, true); a.get("#date-reset").click();
+  assert.equal(a.store.raw, before);
+});
+
+test("apply and swipes return to the compact display without writing defaults or modifying existing records", async () => {
+  const a = instance({ [DATE]: day({ weight: "55" }) }), before = a.store.raw;
+  selectCandidate(a, NEXT); await a.get("#date-apply").click();
+  assert.equal(a.get("#record-date").value, NEXT); assert.equal(a.get("#standing").value, "10"); assert.equal(a.get("#weight").value, "");
+  for (const id of ["#date-actions", "#date-apply", "#date-reset", "#date-status"]) assert.equal(a.get(id).hidden, true);
+  await swipe(a, [250,200], [130,200]); await swipe(a); await swipe(a);
+  assert.equal(a.get("#date-status").hidden, true); assert.equal(a.get("#date-heading").textContent, "日付");
+  assert.equal(a.get("#weight").value, "55"); assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
+});
+
+test("browsing an untouched date never creates a previously absent storage key", async () => {
+  const storage = { writes: 0, getItem() { return null; }, setItem() { this.writes++; } }, a = instance({}, { storage });
+  selectCandidate(a, NEXT); await a.get("#date-apply").click(); await swipe(a);
+  assert.equal(storage.writes, 0); assert.equal(a.get("#record-date").value, DATE);
+});
+
+test("apply waits for edited original date, saves only that day, and retains default standing after a real edit", async () => {
+  const locks = createLocks(), release = await hold(locks), a = instance({}, { locks });
+  selectCandidate(a, NEXT); a.get("#weight").value = "56.2"; const saving = a.hooks.saveCurrentEntry();
+  const moving = a.get("#date-apply").click(); assert.equal(a.get("#entry-fields").disabled, true);
+  assert.match(a.get("#date-status").textContent, /2041\/05\/10/); assert.equal(a.store.raw, "{}");
+  await release(); await saving; await moving;
+  const records = JSON.parse(a.store.raw); assert.deepEqual(Object.keys(records), [DATE]);
+  assert.equal(records[DATE].weight, "56.2"); assert.equal(records[DATE].standing, 10); assert.equal(a.get("#record-date").value, NEXT);
+});
+
+test("failed apply preserves original record target, typed values and the unapplied candidate", async () => {
+  const a = instance(); selectCandidate(a, NEXT); a.store.fail = true; a.get("#weight").value = "56.2";
+  await a.hooks.saveCurrentEntry(); assert.equal(await a.get("#date-apply").click(), false);
+  assert.equal(a.get("#date-status").textContent, "現在の記録：2041/05/10");
+  assert.equal(a.get("#record-date").value, NEXT); assert.equal(a.get("#weight").value, "56.2"); assert.equal(a.store.raw, "{}");
+  a.get("#date-reset").click(); assert.equal(a.get("#weight").value, "56.2"); assert.match(a.window.RecordHistoryInput.canBrowse(), /未保存/);
+});
+
+test("weekly copies and period labels use the active record date rather than an unapplied date", async () => {
+  const a = instance({ [DATE]: day({ weight: "55" }) }), label = a.get("#weekly-period").textContent;
+  for (const id of ["#copy-weekly", "#copy-weekly-body"]) {
+    a.get("#date-reset").click(); await a.get(id).click(); const before = a.clipboard.at(-1);
+    selectCandidate(a, "2041-08-12"); await a.get(id).click(); const after = a.clipboard.at(-1);
+    assert.equal(typeof before, "string"); assert.equal(after, before); assert.equal(a.get("#weekly-period").textContent, label);
+  }
+  assert.equal(a.store.writes, 0);
+});
+
+test("one horizontal swipe moves one day from the active date and never creates an untouched record", async () => {
+  const a = instance(); await swipe(a); assert.equal(a.get("#record-date").value, "2041-05-09");
+  await swipe(a, [250,200], [130,200]); assert.equal(a.get("#record-date").value, DATE);
+  selectCandidate(a, "2041-08-12"); await swipe(a, [250,200], [130,200]); assert.equal(a.get("#record-date").value, NEXT);
+  a.get("#input-screen").events.touchend({ changedTouches: [{ clientX: 130, clientY: 200 }] });
+  assert.equal(a.get("#record-date").value, NEXT); assert.equal(a.store.writes, 0);
+});
+
+test("vertical/diagonal/short gestures, controls, edges, multiple touches and non-input views never navigate", async () => {
+  const a = instance(), screen = a.get("#input-screen");
+  for (const [from,to,target] of [[[150,200],[155,320]], [[150,200],[240,260]], [[150,200],[185,200]], [[10,200],[150,200]], [[380,200],[240,200]], [[150,200],[270,200],{ closest: () => ({}) }]]) {
+    await swipe(a, from, to, target); assert.equal(a.get("#record-date").value, DATE);
+  }
+  screen.events.touchstart({ touches: [{ clientX:150,clientY:200 },{ clientX:200,clientY:200 }] });
+  screen.events.touchend({ changedTouches: [{ clientX:270,clientY:200 }] });
+  screen.events.touchstart({ touches: [{ clientX:150,clientY:200 }] }); screen.events.touchcancel();
+  screen.events.touchend({ changedTouches: [{ clientX:270,clientY:200 }] });
+  a.window.RecordHistoryInput.setBrowsing(true); await swipe(a); a.window.RecordHistoryInput.setBrowsing(false);
+  screen.hidden = true; await swipe(a); assert.equal(a.get("#record-date").value, DATE); assert.equal(a.store.writes, 0);
+});
+
+test("swipe waits for pending edits, rejects repeated navigation and retains the form after a write failure", async () => {
+  const locks = createLocks(), release = await hold(locks), a = instance({}, { locks });
+  a.get("#weight").value = "56.2"; const saving = a.hooks.saveCurrentEntry();
+  const moving = swipe(a, [250,200], [130,200]); await swipe(a); assert.equal(a.get("#record-date").value, DATE);
+  await release(); await saving; await moving; assert.equal(a.get("#record-date").value, NEXT);
+  const before = a.store.raw; a.store.fail = true; a.get("#weight").value = "57"; await a.hooks.saveCurrentEntry();
+  await swipe(a); assert.equal(a.get("#record-date").value, NEXT); assert.equal(a.get("#weight").value, "57"); assert.equal(a.store.raw, before);
 });

@@ -194,7 +194,8 @@ test("normal input, dates, four copies and backup survive history navigation", a
   const instance = app({ "2032-10-18": day({ squat: 10 }) }); instance.screen.open(); select(instance, "2032-10-18"); instance.get("history-edit").click();
   await instance.steps.find((item) => item.dataset.step === "squat" && item.dataset.delta === "5").click();
   assert.equal(JSON.parse(instance.store.raw)["2032-10-18"].squat, 15);
-  await instance.get("next-day").click(); assert.equal(instance.get("record-date").value, "2032-10-19");
+  instance.get("record-date").value = "2032-10-19"; instance.get("record-date").events.change();
+  await instance.get("date-apply").click(); assert.equal(instance.get("record-date").value, "2032-10-19");
   for (const id of ["copy-exercise", "copy-body", "copy-weekly", "copy-weekly-body"]) await instance.get(id).click();
   assert.equal(instance.clipboard.length, 4); assert.deepEqual(Object.keys(instance.clipboard[0][0].data), ["text/html", "text/plain"]);
   assert.equal((await instance.clipboard[0][0].data["text/plain"].text()).split("\t").length, 9);
@@ -289,12 +290,15 @@ test("opening saved input scrolls to page top only after the input screen has re
   assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
 });
 
-test("ordinary input/date navigation and history month selection do not get page-top scrolling", () => {
+test("ordinary input/date navigation and history month selection do not get page-top scrolling", async () => {
   const instance = app({ "2032-10-18": day() }); instance.screen.open(); select(instance, "2032-10-18");
   instance.get("history-month-prev").click(); instance.get("history-month-next").click(); instance.flushFrames();
   assert.equal(instance.scrollCalls.length, 0); instance.screen.close(); instance.flushFrames();
   assert.equal(instance.scrollCalls.length, 0);
-  instance.get("previous-day").click(); instance.get("next-day").click(); instance.flushFrames();
+  for (const date of ["2032-10-18", "2032-10-19"]) {
+    instance.get("record-date").value = date; instance.get("record-date").events.change(); await instance.get("date-apply").click();
+  }
+  instance.flushFrames();
   assert.equal(instance.scrollCalls.length, 0);
 });
 
@@ -425,7 +429,7 @@ test("an insecure HTTP context does not register the Service Worker", () => {
   }
 });
 
-test("v18 caches every app reference with fresh content, serves offline and replaces only older app caches", async () => {
+test("v19 caches every app reference with fresh content, serves offline and replaces only older app caches", async () => {
   const origin = "https://example.test/exercise-record/", events = {}, saved = new Map(), deleted = [];
   const httpCache = new Map([[new URL("script.js", origin).href, "old public input script"]]);
   const downloads = [];
@@ -448,8 +452,8 @@ test("v18 caches every app reference with fresh content, serves offline and repl
       saved.set(url.href, { ok: true, body });
     }
   } };
-  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v18"); return cache; },
-    keys: async () => ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "other-cache"], delete: async (name) => { deleted.push(name); },
+  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v19"); return cache; },
+    keys: async () => ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "other-cache"], delete: async (name) => { deleted.push(name); },
     match: async (request) => saved.get(request.url) };
   const context = { self, caches, URL, Request: WorkerRequest, fetch: async () => { networkCalls++; throw Error("offline"); } };
   Object.defineProperty(context, "localStorage", { get() { assert.fail("Service Worker must not access records"); } });
@@ -471,7 +475,7 @@ test("v18 caches every app reference with fresh content, serves offline and repl
   }
   assert.equal(networkCalls, 0);
   events.activate({ waitUntil: (promise) => { pending = promise; } }); await pending;
-  assert.deepEqual(deleted, ["exercise-record-v16", "exercise-record-v17"]); assert(skipped && claimed);
+  assert.deepEqual(deleted, ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18"]); assert(skipped && claimed);
 });
 
 
@@ -603,12 +607,12 @@ test("monthly ASCII formatting does not alter detail warning punctuation or save
   assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
 });
 
-test("v18 matches the current HTML CSS URL and preserves the history asset identifiers", () => {
+test("v19 matches the current HTML CSS URL and preserves the history asset identifiers", () => {
   const version = "0.3-history-separators-20261021", worker = fs.readFileSync(path.join(root, "service-worker.js"), "utf8");
   for (const file of ["record-history.js", "history-view.js"]) {
     assert(html.includes(`${file}?v=${version}`)); assert(worker.includes(`./${file}?v=${version}`));
   }
   assert(html.includes("style.css?v=0.4-gear-optical-20261024-up2"));
   assert(worker.includes("./style.css?v=0.4-gear-optical-20261024-up2"));
-  assert(worker.includes('const CACHE_NAME = "exercise-record-v18"'));
+  assert(worker.includes('const CACHE_NAME = "exercise-record-v19"'));
 });

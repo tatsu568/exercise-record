@@ -451,20 +451,37 @@ for (const width of [320, 375, 390, 430]) test(`all six periods retain readable 
   assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
 });
 
-test("chart headings and goals share a grid row without changing their IDs or live target updates", () => {
+test("chart headings keep goals and compact attention counts together with wrapping and live updates", () => {
   const css = fs.readFileSync(path.join(root, "style.css"), "utf8");
   assert.match(css, /\.graph-card\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\)/);
-  assert.match(css, /\.graph-card > :not\(h3\):not\(\.graph-goal\)[^{]*\{[^}]*grid-column:\s*1 \/ -1/);
+  assert.match(css, /\.graph-card > :not\(h3\):not\(\.graph-meta\)[^{]*\{[^}]*grid-column:\s*1 \/ -1/);
+  assert.match(css, /\.graph-meta\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap/);
   for (const field of ["weight", "bodyFat"]) {
-    assert.match(html, new RegExp(`<h3[^>]*id="graph-${field}-heading"[^>]*>[\\s\\S]*?<\\/h3>\\s*<p[^>]*id="graph-${field}-goal"`));
+    assert.match(html, new RegExp(`<h3[^>]*id="graph-${field}-heading"[^>]*>[\\s\\S]*?<\\/h3>\\s*<div class="graph-meta">\\s*<p[^>]*id="graph-${field}-goal"[^>]*><\\/p>\\s*<p[^>]*id="graph-${field}-attention-count"`));
   }
   let targets = { weight: { min: 56, max: 56.9 }, bodyFat: { min: 16, max: 16.9 } };
   const a = app(fixture(), { targets: () => targets }); a.open();
+  for (const field of ["weight", "bodyFat"]) assert.equal(a.get(`graph-${field}-attention-count`).textContent, "未確認 0件");
   const originalBand = { ...byClass(svg(a), "graph-target-band")[0].attrs };
   targets = { weight: { min: 52.1, max: 53.2 }, bodyFat: { min: 14.1, max: 15.2 } }; a.graphView.refresh();
   assert.equal(a.get("graph-weight-goal").textContent, "目標：52.1〜53.2kg");
   assert.equal(a.get("graph-bodyFat-goal").textContent, "目標：14.1〜15.2%");
   assert.notDeepEqual(byClass(svg(a), "graph-target-band")[0].attrs, originalBand); assert.equal(a.store.writes, 0);
+});
+
+test("numeric autosave and keyboard focus movement remain without a custom next/done toolbar", async () => {
+  assert.doesNotMatch(html, /id="input-(?:toolbar|next)"/);
+  const css = fs.readFileSync(path.join(root, "style.css"), "utf8");
+  assert.doesNotMatch(css, /\.input-toolbar/);
+  const a = app({}, { today: "2041-01-03" });
+  a.get("walk-minutes").value = "0"; a.get("walk-minutes").focus(); await a.get("walk-minutes").fire("input");
+  const writes = a.store.writes; a.get("walk-minutes").fire("keydown", { key: "Enter" });
+  assert.equal(a.document.activeElement, a.get("walk-seconds")); assert.equal(a.store.writes, writes);
+  a.get("walk-steps").focus(); a.get("walk-steps").fire("keydown", { key: "Enter" }); assert.equal(a.document.activeElement, null);
+  a.get("basal").value = "1300"; a.get("basal").focus(); await a.get("basal").fire("input");
+  a.get("basal").fire("keydown", { key: "Enter" }); assert.equal(a.document.activeElement, null);
+  const saved = JSON.parse(a.store.raw)["2041-01-03"]; assert.equal(saved.walkMinutes, "0"); assert.equal(saved.basal, "1300");
+  assert.equal(a.store.ackWrites, 0);
 });
 
 test("each summary item pairs its colon label and value on a wrapping item layout", () => {

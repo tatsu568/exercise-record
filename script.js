@@ -21,7 +21,6 @@
   let activeDate = "";
   let toastTimer;
   let saveTimer;
-  let lastFocusedInput = null;
   // Delay access to the browser's storage property so denied access is caught
   // by the same read/write error paths as getItem/setItem failures.
   const recordStorage = { getItem(key) { return localStorage.getItem(key); },
@@ -66,28 +65,43 @@
     FIELDS.date.value = date;
     renderEntry();
     updateWeeklyPeriod(date);
+    updateDateSelection();
+  }
+
+  function validDate(date) {
+    try { RecordTransfer.validateRecordsMap({ [date]: {} }); return true; }
+    catch { return false; }
+  }
+
+  function updateDateSelection() {
+    const candidate = FIELDS.date.value, different = candidate !== activeDate;
+    document.querySelector("#date-heading").textContent = different ? "変更先の日付" : "日付";
+    document.querySelector("#date-actions").hidden = !different;
+    const apply = document.querySelector("#date-apply"); apply.hidden = !different;
+    apply.disabled = navigationPending || !different || !validDate(candidate);
+    const reset = document.querySelector("#date-reset"); reset.hidden = !different; reset.disabled = navigationPending;
+    const status = document.querySelector("#date-status"); status.hidden = !different;
+    status.textContent = different ? `現在の記録：${activeDate.replace(/-/g, "/")}` : "";
   }
 
   async function switchDate(date) {
-    if (!date) return;
+    if (!validDate(date)) return false;
     if (restoreSession || historyBrowsing) { FIELDS.date.value = activeDate; return; }
-    if (navigationPending) { FIELDS.date.value = activeDate; return false; }
+    if (navigationPending) return false;
     if (date === activeDate) {
       FIELDS.date.value = activeDate;
-      return;
+      updateDateSelection(); return true;
     }
     if (storageLoadError) {
-      FIELDS.date.value = activeDate;
       showToast("保存データを読み込めないため、日付変更を停止しています", 4000);
       return;
     }
-    // An unsupported HTTP context remains usable for read-only date browsing.
-    if (!recordStore.supported() && !hasUnsavedChanges) { loadDate(date); return true; }
-    FIELDS.date.value = activeDate;
     navigationPending = true;
     document.querySelector("#entry-fields").disabled = true;
+    updateDateSelection();
     try {
-      if (!await saveCurrentEntry()) return false;
+      // Viewing an untouched day must not turn its defaults into a saved record.
+      if ((hasUnsavedChanges || saveJob) && !await saveCurrentEntry()) return false;
       entries = readEntries();
       if (storageLoadError) return false;
       loadDate(date);
@@ -95,12 +109,12 @@
     } finally {
       navigationPending = false;
       document.querySelector("#entry-fields").disabled = Boolean(restoreSession);
-      FIELDS.date.value = activeDate;
+      updateDateSelection();
     }
   }
 
   function moveDateByDays(dayDelta) {
-    const [year, month, day] = (FIELDS.date.value || activeDate).split("-").map(Number);
+    const [year, month, day] = activeDate.split("-").map(Number);
     if (![year, month, day].every(Number.isFinite)) return;
     // Use local noon so daylight-saving transitions cannot shift the calendar date.
     const date = new Date(year, month - 1, day + dayDelta, 12);
@@ -296,7 +310,6 @@
     document.querySelector("#backup-export").disabled = locked;
     document.querySelector("#restore-start").disabled = locked;
     document.querySelector("#csv-start").disabled = locked;
-    document.querySelector("#input-toolbar").hidden = true;
   }
 
   function clearRestoreConfirmations() {
@@ -867,7 +880,7 @@
 
   async function copyWeeklyBody() {
     try {
-      const text = weeklyBodyCopyText(FIELDS.date.value || activeDate);
+      const text = weeklyBodyCopyText(activeDate);
       if (window.isSecureContext && navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
         showToast("コピーしました");
@@ -886,7 +899,7 @@
 
   async function copyWeeklyExercise() {
     try {
-      const text = weeklyCopyText(FIELDS.date.value || activeDate);
+      const text = weeklyCopyText(activeDate);
       if (window.isSecureContext && navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
         showToast("コピーしました");
@@ -1022,51 +1035,55 @@
   }
 
   function focusNextInput() {
-    const activeElement = document.activeElement;
-    const active = INPUT_ORDER.includes(activeElement) ? activeElement : lastFocusedInput;
-    if (!active) return;
+    const active = document.activeElement;
+    if (!INPUT_ORDER.includes(active)) return;
     if (active === FIELDS.walkSteps || active === FIELDS.basal) {
       active.blur();
-      lastFocusedInput = null;
-      document.querySelector("#input-toolbar").hidden = true;
       return;
     }
     const index = INPUT_ORDER.indexOf(active);
     if (index >= 0 && index < INPUT_ORDER.length - 1) {
-      lastFocusedInput = INPUT_ORDER[index + 1];
-      lastFocusedInput.focus();
-      lastFocusedInput.scrollIntoView({ block: "center", behavior: "smooth" });
+      INPUT_ORDER[index + 1].focus();
+      INPUT_ORDER[index + 1].scrollIntoView({ block: "center", behavior: "smooth" });
     } else {
       active.blur();
-      lastFocusedInput = null;
-      document.querySelector("#input-toolbar").hidden = true;
     }
   }
 
-  function updateInputToolbar() {
-    const active = document.activeElement;
-    const bar = document.querySelector("#input-toolbar");
-    if (historyBrowsing) { bar.hidden = true; return; }
-    const focused = INPUT_ORDER.includes(active);
-    bar.hidden = !focused;
-    if (focused) {
-      const finalInput = active === FIELDS.walkSteps || active === FIELDS.basal;
-      document.querySelector("#input-next").textContent = finalInput ? "完了" : "次へ";
-      positionInputToolbar();
-    }
-  }
-
-  function positionInputToolbar() {
-    const viewport = window.visualViewport;
-    if (!viewport) return;
-    const keyboardInset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
-    document.querySelector("#input-toolbar").style.bottom = `${keyboardInset}px`;
+  function connectDateSwipe() {
+    const screen = document.querySelector("#input-screen");
+    let start = null;
+    const blocked = () => historyBrowsing || restoreSession || navigationPending || screen.hidden;
+    screen.addEventListener("touchstart", (event) => {
+      start = null;
+      if (blocked() || event.touches.length !== 1
+        || event.target?.closest?.("input, button, select, textarea, label, a, [role=button], [contenteditable], .date-card")) return;
+      const touch = event.touches[0], width = window.innerWidth || document.documentElement?.clientWidth || 0;
+      // Leave screen-edge gestures and all native form controls to the browser.
+      if (touch.clientX < 24 || touch.clientX > width - 24) return;
+      start = { x: touch.clientX, y: touch.clientY };
+    }, { passive: true });
+    screen.addEventListener("touchmove", (event) => {
+      if (!start) return;
+      if (event.touches.length !== 1) { start = null; return; }
+      const dx = Math.abs(event.touches[0].clientX - start.x), dy = Math.abs(event.touches[0].clientY - start.y);
+      if (dy > 40 || (dy > 18 && dy > dx)) start = null;
+    }, { passive: true });
+    screen.addEventListener("touchend", (event) => {
+      const from = start; start = null;
+      if (!from || blocked() || event.changedTouches.length !== 1) return;
+      const dx = event.changedTouches[0].clientX - from.x, dy = event.changedTouches[0].clientY - from.y;
+      if (Math.abs(dx) >= 60 && Math.abs(dx) >= Math.abs(dy) * 2) return moveDateByDays(dx > 0 ? -1 : 1);
+    }, { passive: true });
+    screen.addEventListener("touchcancel", () => { start = null; }, { passive: true });
   }
 
   function connectEvents() {
-    FIELDS.date.addEventListener("change", () => switchDate(FIELDS.date.value || localDateString()));
-    document.querySelector("#previous-day").addEventListener("click", () => moveDateByDays(-1));
-    document.querySelector("#next-day").addEventListener("click", () => moveDateByDays(1));
+    FIELDS.date.addEventListener("input", updateDateSelection);
+    FIELDS.date.addEventListener("change", updateDateSelection);
+    document.querySelector("#date-apply").addEventListener("click", () => switchDate(FIELDS.date.value));
+    document.querySelector("#date-reset").addEventListener("click", () => { FIELDS.date.value = activeDate; updateDateSelection(); });
+    connectDateSwipe();
     document.querySelectorAll("[data-work]").forEach((button) => button.addEventListener("click", () => {
       currentEntry.work = currentEntry.work === button.dataset.work ? "" : button.dataset.work;
       renderEntry(); return saveCurrentEntry();
@@ -1088,10 +1105,7 @@
       input.addEventListener("keydown", (event) => {
         if (event.key === "Enter") { event.preventDefault(); focusNextInput(); }
       });
-      input.addEventListener("focus", () => { lastFocusedInput = input; updateInputToolbar(); });
-      input.addEventListener("blur", () => setTimeout(updateInputToolbar, 80));
     });
-    document.querySelector("#input-next").addEventListener("click", focusNextInput);
     document.querySelector("#copy-exercise").addEventListener("click", () => copyHtmlTable(exerciseRow()));
     document.querySelector("#copy-body").addEventListener("click", () => copyHtmlTable(bodyRow()));
     document.querySelector("#copy-weekly").addEventListener("click", copyWeeklyExercise);
@@ -1134,10 +1148,6 @@
     window.addEventListener("beforeunload", (event) => {
       if (hasUnsavedChanges || saveJob || restoreSession?.applying) { event.preventDefault(); event.returnValue = ""; }
     });
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", positionInputToolbar);
-      window.visualViewport.addEventListener("scroll", positionInputToolbar);
-    }
   }
 
   // Non-input screens share this browsing guard; never navigate via switchDate.

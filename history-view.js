@@ -165,7 +165,6 @@
       const error = input.canBrowse();
       if (error) { input.notify(error); return; }
       input.setBrowsing(true);
-      get("input-toolbar").hidden = true;
       document.activeElement?.blur();
       get("input-screen").hidden = true; get("history-screen").hidden = false;
       get("history-show").setAttribute("aria-pressed", "true"); get("input-show").setAttribute("aria-pressed", "false");

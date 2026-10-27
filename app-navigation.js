@@ -32,7 +32,6 @@
       views.get(active)?.onHide?.();
       // Establish the save guard before blur/hide can trigger input events.
       input.setBrowsing(name !== "input");
-      get("input-toolbar").hidden = true;
       document.activeElement?.blur();
       const from = active;
       active = name;

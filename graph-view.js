@@ -104,7 +104,7 @@
         const count = state.attention?.counts[field];
         get(`graph-${field}-attention-count`).textContent = state.attentionError ? "注意件数：判定できません"
           : !count || count.unconfirmedAttention === null ? `確認状態不明（注意対象${count?.totalAttention ?? "不明"}件）`
-          : `未確認の注意点：${count.unconfirmedAttention}件`;
+          : `未確認 ${count.unconfirmedAttention}件`;
       }
       get("graph-settings-status").textContent = [getTargetStatus(), state.attentionError].filter(Boolean).join("。 ");
       const message = get("graph-ack-status");

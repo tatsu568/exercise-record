@@ -37,10 +37,11 @@
     <legend class="visually-hidden">日々の記録</legend>
     <section class="card date-card" aria-labelledby="date-heading">
       <label id="date-heading" for="record-date">日付</label>
-      <div class="date-controls">
-        <button class="date-step" id="previous-day" type="button" aria-label="前へ">前</button>
-        <input id="record-date" type="date" aria-label="記録する日付">
-        <button class="date-step" id="next-day" type="button" aria-label="次へ">次</button>
+      <input id="record-date" type="date">
+      <p id="date-status" class="date-status" aria-live="polite" hidden></p>
+      <div id="date-actions" class="date-apply-actions" hidden>
+        <button id="date-apply" class="date-step" type="button" hidden disabled>日付を適用</button>
+        <button id="date-reset" class="date-step" type="button" hidden>取り消す</button>
       </div>
     </section>
 
@@ -203,8 +204,10 @@
       </section>
       <section class="card graph-card" aria-labelledby="graph-weight-heading">
         <h3 id="graph-weight-heading">体重 <small>kg</small></h3>
-        <p id="graph-weight-goal" class="graph-goal"></p>
-        <p id="graph-weight-attention-count" class="graph-attention-count" aria-live="polite"></p>
+        <div class="graph-meta">
+          <p id="graph-weight-goal" class="graph-goal"></p>
+          <p id="graph-weight-attention-count" class="graph-attention-count" aria-live="polite"></p>
+        </div>
         <div id="graph-weight-plot" class="graph-plot"></div>
         <p id="graph-weight-empty" class="graph-empty" hidden>この期間に測定記録はありません</p>
         <div id="graph-weight-summary" class="graph-summary" hidden></div>
@@ -217,8 +220,10 @@
       </section>
       <section class="card graph-card" aria-labelledby="graph-bodyFat-heading">
         <h3 id="graph-bodyFat-heading">体脂肪率 <small>%</small></h3>
-        <p id="graph-bodyFat-goal" class="graph-goal"></p>
-        <p id="graph-bodyFat-attention-count" class="graph-attention-count" aria-live="polite"></p>
+        <div class="graph-meta">
+          <p id="graph-bodyFat-goal" class="graph-goal"></p>
+          <p id="graph-bodyFat-attention-count" class="graph-attention-count" aria-live="polite"></p>
+        </div>
         <div id="graph-bodyFat-plot" class="graph-plot"></div>
         <p id="graph-bodyFat-empty" class="graph-empty" hidden>この期間に測定記録はありません</p>
         <div id="graph-bodyFat-summary" class="graph-summary" hidden></div>
@@ -267,9 +272,6 @@
     </section>
   </main>
 
-  <div id="input-toolbar" class="input-toolbar" aria-label="入力操作" hidden>
-    <button id="input-next" type="button">次へ</button>
-  </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="record-save.js" defer></script>
   <script src="record-transfer.js" defer></script>
