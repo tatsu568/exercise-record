@@ -462,7 +462,7 @@ test("v17 keeps existing assets offline and explicitly identifies deferred STEP 
   // STEP 3/4 must not alter the public cache. STEP 6/7 must add these assets
   // before publication; their offline failure here is intentional and checked.
   const cssRef = /<link rel="stylesheet" href="([^"]+)"/.exec(html)[1];
-  const deferred = ["record-save.js", "body-graph.js", "app-navigation.js", "app-settings.js", "settings-view.js", "graph-view.js", cssRef];
+  const deferred = ["record-save.js", "body-graph.js", "measurement-attention.js", "attention-acknowledgements.js", "app-navigation.js", "app-settings.js", "settings-view.js", "graph-view.js", cssRef];
   assert.equal(saved.has(new URL(cssRef, origin).href), false);
   assert.equal(saved.get(new URL("style.css?v=0.3-history-separators-20261021", origin).href).body, fs.readFileSync(path.join(root, "style.css"), "utf8"));
   assert.deepEqual(refs.filter((reference) => deferred.includes(reference)), deferred);

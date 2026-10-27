@@ -2,14 +2,21 @@
   "use strict";
   const commonJS = typeof module === "object" && module.exports;
   const api = factory(commonJS ? require("./body-graph.js") : root.BodyGraph,
-    commonJS ? require("./record-history.js") : root.RecordHistory);
+    commonJS ? require("./record-history.js") : root.RecordHistory,
+    commonJS ? require("./measurement-attention.js") : root.MeasurementAttention,
+    commonJS ? require("./attention-acknowledgements.js") : root.AttentionAcknowledgements,
+    commonJS ? require("./app-settings.js") : root.AppSettings);
   if (commonJS) module.exports = api;
   else {
     root.BodyGraphView = api;
+    let locks;
+    try { locks = root.navigator?.locks; } catch { /* Read-only acknowledgement UI. */ }
     root.RecordGraphView = api.mount({ document, window, storage: localStorage, navigation: root.RecordAppNavigation,
-      getTargets: () => root.RecordSettings.getTargets(), getTargetStatus: () => root.RecordSettings.read("goals").error });
+      getTargets: () => root.RecordSettings.getTargets(), getTargetStatus: () => root.RecordSettings.read("goals").error,
+      getAttentionSettings: () => root.RecordSettings.getAttention(),
+      acknowledgementStore: root.AttentionAcknowledgements.createStore({ storage: localStorage, locks, isSecureContext: window.isSecureContext }) });
   }
-})(typeof globalThis !== "undefined" ? globalThis : this, function (model, history) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (model, history, attention, acknowledgements, settings) {
   "use strict";
   const KEY = "exercise-record.entries.v1";
   const SVG_NS = "http://www.w3.org/2000/svg";
@@ -30,7 +37,9 @@
     return nearest;
   }
 
-  function mount({ document, window, storage, navigation, today = () => model.localDateString(new Date()), getTargets = () => INITIAL_TARGETS, getTargetStatus = () => "" }) {
+  function mount({ document, window, storage, navigation, today = () => model.localDateString(new Date()), getTargets = () => INITIAL_TARGETS, getTargetStatus = () => "",
+    getAttentionSettings = () => ({ values: settings.DEFAULTS.attention, error: "" }),
+    acknowledgementStore = acknowledgements.createStore({ storage, locks: window.navigator?.locks, isSecureContext: window.isSecureContext }) }) {
     const get = (id) => document.querySelector(`#${id}`);
     const node = (tag, text, className) => {
       const item = document.createElement(tag);
@@ -48,7 +57,8 @@
       return item;
     };
     const state = { open: false, mode: "3m", anchor: null, offset: 0, custom: null, range: null,
-      measurements: { weight: [], bodyFat: [], excluded: [] }, selected: { weight: null, bodyFat: null }, error: false };
+      records: {}, measurements: { weight: [], bodyFat: [], excluded: [] }, selected: { weight: null, bodyFat: null }, error: false,
+      attention: null, acknowledgement: { confirmed: null, error: "" }, attentionError: "", busy: false, actionMessage: "", actionError: false };
     const parts = {};
     let resizeQueued = false;
 
@@ -74,18 +84,75 @@
       const next = model.adjacentMeasurement(points, selection.index, delta);
       if (next) choose(field, next.date);
     }
+    function confirmed(date, field) { return state.acknowledgement.confirmed?.[date]?.[field] === true; }
+    function attentionPoint(date, field) { return state.attention?.[field].find((point) => point.date === date); }
+    function updateAttention() {
+      state.acknowledgement = acknowledgementStore.read();
+      state.attention = null; state.attentionError = "";
+      try {
+        const saved = getAttentionSettings();
+        if (saved.error || saved.uncertain) throw new Error(saved.error || "注意判定設定の保存結果が不明です");
+        state.attention = attention.evaluateAttention(state.records, saved.values, state.range);
+        // The calculation API uses current measurement identities only in memory.
+        // Persisted confirmation is resolved solely by date + field, never by value.
+        const resolved = state.acknowledgement.error ? null : FIELDS.flatMap((field) => state.attention[field].map((point) => ({
+          date: point.date, field, value: point.decimal, status: confirmed(point.date, field) ? "confirmed" : "unconfirmed"
+        })));
+        state.attention.counts = attention.summarizeAttention(state.attention, resolved);
+      } catch (error) { state.attentionError = `注意判定設定を確認してください：${error.message}`; }
+      for (const field of FIELDS) {
+        const count = state.attention?.counts[field];
+        get(`graph-${field}-attention-count`).textContent = state.attentionError ? "注意件数：判定できません"
+          : !count || count.unconfirmedAttention === null ? `確認状態不明（注意対象${count?.totalAttention ?? "不明"}件）`
+          : `未確認の注意点：${count.unconfirmedAttention}件`;
+      }
+      get("graph-settings-status").textContent = [getTargetStatus(), state.attentionError].filter(Boolean).join("。 ");
+      const message = get("graph-ack-status");
+      message.textContent = [state.acknowledgement.error, state.actionMessage].filter(Boolean).join("。 ");
+      message.dataset.error = String(Boolean(state.acknowledgement.error) || state.actionError);
+    }
+    function renderAttentionSelection(field, date) {
+      const container = get(`graph-${field}-attention`), point = attentionPoint(date, field), checked = confirmed(date, field);
+      container.replaceChildren(); container.hidden = !date || (!point?.isAttention && !checked);
+      if (container.hidden) return;
+      container.append(node("p", checked ? "確認済み（値や注意条件が変わっても維持します）"
+        : state.acknowledgement.error ? "確認状態不明" : "入力値を確認してください（未確認）"));
+      if (point?.isAttention) {
+        const reasons = node("ul");
+        for (const reason of point.reasons) reasons.append(node("li", reason.code === "fixed-below" ? `固定下限 ${reason.bound}${reason.unit} 未満`
+          : reason.code === "fixed-above" ? `固定上限 ${reason.bound}${reason.unit} 超`
+          : `前回 ${dateText(reason.previousDate)} の ${reason.previousRaw}${field === "weight" ? "kg" : "%"} から${reason.days}日で ${reason.difference}${reason.unit}（急変幅 ${reason.threshold}${reason.unit} 以上）`));
+        container.append(reasons);
+      }
+      const button = node("button", checked ? "未確認に戻す" : "確認済みにする", "date-step graph-ack-toggle");
+      button.type = "button"; button.dataset.date = date; button.dataset.field = field;
+      button.disabled = state.busy || Boolean(state.acknowledgement.error) || !acknowledgementStore.supported();
+      button.addEventListener("click", () => saveAcknowledgement(date, field, !checked)); container.append(button);
+      if (!acknowledgementStore.supported()) container.append(node("p", "確認状態の保存はHTTPS対応環境で利用できます"));
+    }
+    async function saveAcknowledgement(date, field, value) {
+      if (state.busy || state.error || state.acknowledgement.error) return;
+      state.busy = true; state.actionError = false; state.actionMessage = "確認状態を保存中です";
+      render();
+      try {
+        await acknowledgementStore.setConfirmed(date, field, value);
+        state.actionMessage = `${dateText(date)}の${TITLES[field]}を${value ? "確認済み" : "未確認"}にしました`;
+      } catch (error) { state.actionMessage = error.message; state.actionError = true; }
+      finally { state.busy = false; refresh(); }
+    }
     function renderSelection(field) {
       const plot = parts[field], points = plot?.data.points || [];
       const selection = model.selectionInfo(points, state.selected[field]);
       get(`graph-${field}-previous`).disabled = !selection.previous;
       get(`graph-${field}-next`).disabled = !selection.next;
-      if (!selection.point) { state.selected[field] = null; get(`graph-${field}-selected`).textContent = ""; return; }
+      if (!selection.point) { state.selected[field] = null; get(`graph-${field}-selected`).textContent = ""; renderAttentionSelection(field, null); return; }
       const point = points[selection.index]; state.selected[field] = point.date;
       const x = plot.left + point.x, y = plot.top + point.y;
       for (const [name, value] of Object.entries({ x1: x, x2: x, y1: plot.top, y2: plot.top + plot.height })) plot.guide.setAttribute(name, String(value));
       plot.marker.setAttribute("cx", String(x)); plot.marker.setAttribute("cy", String(y));
       plot.marker.dataset.date = point.date;
       get(`graph-${field}-selected`).textContent = `${dateText(point.date)}　${point.raw}${field === "weight" ? "kg" : "%"}`;
+      renderAttentionSelection(field, point.date);
     }
     function tapPosition(svg, event, width, height) {
       if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return null;
@@ -173,6 +240,9 @@
       for (const point of data.points) {
         const circle = svgNode("circle", { cx: left + point.x, cy: top + point.y, r: 3, class: "graph-point" });
         circle.dataset.date = point.date; svg.append(circle);
+        if (attentionPoint(point.date, field)?.isAttention && !confirmed(point.date, field)) {
+          svg.append(svgNode("circle", { cx: left + point.x, cy: top + point.y, r: 7.5, class: "graph-attention-mark" }));
+        }
       }
       const guide = svgNode("line", { class: "graph-guide" }), marker = svgNode("circle", { r: 5, class: "graph-selection" });
       svg.append(guide, marker); Object.assign(parts[field], { svg, guide, marker });
@@ -207,7 +277,7 @@
       if (resetSelection) state.selected = { weight: null, bodyFat: null };
       controls();
       const targets = getTargets();
-      get("graph-settings-status").textContent = getTargetStatus();
+      updateAttention();
       for (const field of FIELDS) renderField(field, targets);
     }
     function showError(error) {
@@ -216,6 +286,8 @@
         get(`graph-${field}-plot`).replaceChildren(); get(`graph-${field}-summary`).hidden = true;
         get(`graph-${field}-empty`).hidden = true; get(`graph-${field}-selected`).textContent = "表示できません";
         get(`graph-${field}-previous`).disabled = true; get(`graph-${field}-next`).disabled = true;
+        get(`graph-${field}-attention-count`).textContent = "注意情報を表示できません";
+        get(`graph-${field}-attention`).hidden = true;
         delete parts[field];
       }
       controls();
@@ -224,6 +296,7 @@
       if (!state.open) return;
       try {
         const records = history.read(storage.getItem(KEY));
+        state.records = records;
         state.measurements = model.extractMeasurements(records);
         if (!state.anchor || (state.offset === 0 && !["all", "custom"].includes(state.mode))) state.anchor = today();
         const next = period(), changed = JSON.stringify(next) !== JSON.stringify(state.range);
@@ -283,7 +356,10 @@
       });
       for (const field of FIELDS) observer.observe(get(`graph-${field}-plot`));
     }
-    window.addEventListener("storage", (event) => { if (event.key === KEY || event.key === "exercise-record.goals.v1" || event.key === null) refresh(); });
+    window.addEventListener("storage", (event) => {
+      if ([KEY, "exercise-record.goals.v1", "exercise-record.attention-settings.v1", acknowledgements.KEY, null].includes(event.key)) refresh();
+    });
+    window.addEventListener("pagehide", () => acknowledgementStore.cancelPending());
     window.addEventListener("focus", refresh); window.addEventListener("pageshow", refresh);
     return Object.freeze({ open: () => navigation.show("graph"), refresh,
       getState: () => ({ mode: state.mode, anchor: state.anchor, offset: state.offset, range: state.range && { ...state.range }, selected: { ...state.selected }, error: state.error }) });

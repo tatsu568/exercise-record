@@ -182,6 +182,13 @@ button { touch-action: manipulation; }
 .graph-selected:empty { display: none; }
 .graph-point-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 #graph-screen button:disabled { opacity: .45; }
+.graph-attention-count { margin: 0 0 6px; color: #9a3b17; font-size: 13px; overflow-wrap: anywhere; }
+.graph-attention-mark { fill: none; stroke: #ae4b19; stroke-width: 2; pointer-events: none; }
+.graph-attention-detail { min-width: 0; margin-bottom: 10px; padding: 10px; border: 1px solid #d8bc9f; border-radius: 8px; background: #fffaf2; font-size: 13px; overflow-wrap: anywhere; }
+.graph-attention-detail[hidden] { display: none; }
+.graph-attention-detail p { margin: 0 0 6px; }
+.graph-attention-detail ul { margin: 0 0 8px; padding-left: 1.4em; }
+.graph-attention-detail button { width: 100%; min-height: 48px; white-space: normal; }
 #input-screen[hidden], #history-screen[hidden], #history-detail[hidden], #history-edit[hidden] { display: none; }
 #history-screen { min-width: 0; }
 #history-heading { margin: 0 0 6px; font-size: 19px; }

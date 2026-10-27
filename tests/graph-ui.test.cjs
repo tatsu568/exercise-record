@@ -6,6 +6,7 @@ const fs = require("node:fs"), path = require("node:path"), vm = require("node:v
 const { File } = require("node:buffer");
 const transfer = require("../record-transfer.js"), csv = require("../numbers-csv.js"), history = require("../history-view.js");
 const navigationModule = require("../app-navigation.js"), graph = require("../graph-view.js"), model = require("../body-graph.js");
+const acknowledgements = require("../attention-acknowledgements.js"), appSettings = require("../app-settings.js");
 const root = path.join(__dirname, ".."), html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 const script = fs.readFileSync(path.join(root, "script.js"), "utf8").replace(/\}\)\(\);\s*$/, "globalThis.hooks={saveCurrentEntry,loadDate,switchDate,previewBackup,previewCsv,applyRestore,cancelRestore};\n})();");
 const day = (changes = {}) => ({ ...transfer.DEFAULT_ENTRY, ...changes });
@@ -50,9 +51,14 @@ function app(records = fixture(), options = {}) {
     if (s) { button.dataset.step = s[1]; button.dataset.delta = /data-delta="([^"]+)"/.exec(match[1])[1]; steps.push(button); }
   }
   const get = (id) => { assert.ok(elements.has(id), id); return elements.get(id); };
+  const extras = new Map(Object.entries(options.extras || {}));
   const store = { raw: typeof records === "string" || records === null ? records : JSON.stringify(records), writes: 0, failWrite: false, failRead: false,
-    getItem(key) { assert.equal(key, "exercise-record.entries.v1"); if (this.failRead) throw Error("read failed"); return this.raw; },
-    setItem(key, value) { assert.equal(key, "exercise-record.entries.v1"); if (this.failWrite) throw Error("quota"); this.writes++; this.raw = value; },
+    extras, ackWrites: 0, failAckRead: false, failAckWrite: false, failAckVerify: false,
+    getItem(key) { if (key === acknowledgements.KEY) { if (this.failAckRead || (this.failAckVerify && this.ackWrites)) throw Error("ack read"); return extras.get(key) ?? null; }
+      if (Object.values(appSettings.KEYS).includes(key)) return extras.get(key) ?? null;
+      assert.equal(key, "exercise-record.entries.v1"); if (this.failRead) throw Error("read failed"); return this.raw; },
+    setItem(key, value) { if (key === acknowledgements.KEY) { if (this.failAckWrite) throw Error("ack quota"); this.ackWrites++; extras.set(key, value); return; }
+      assert.equal(key, "exercise-record.entries.v1"); if (this.failWrite) throw Error("quota"); this.writes++; this.raw = value; },
     clear() { assert.fail("no clear"); }, removeItem() { assert.fail("no remove"); } };
   const window = { isSecureContext: true, confirm: () => true, scrollY: 0,
     addEventListener(name, fn) { (listeners[name] ||= []).push(fn); }, requestAnimationFrame(fn) { frames.push(fn); },
@@ -76,7 +82,9 @@ function app(records = fixture(), options = {}) {
   } else {
     nav = navigationModule.mount({ document, input: window.RecordHistoryInput });
     historyView = history.mount({ document, window, storage: store, input: window.RecordHistoryInput, navigation: nav, today: () => now.value });
-    graphView = graph.mount({ document, window, storage: store, navigation: nav, today: () => now.value, ...(options.targets ? { getTargets: options.targets } : {}) });
+    graphView = graph.mount({ document, window, storage: store, navigation: nav, today: () => now.value,
+      acknowledgementStore: acknowledgements.createStore({ storage: store, locks: options.locks || createLocks(), isSecureContext: true }),
+      ...(options.attention ? { getAttentionSettings: options.attention } : {}), ...(options.targets ? { getTargets: options.targets } : {}) });
   }
   return { get, store, nav, graphView, historyView, hooks: context.hooks, now, viewport, steps, copies, shares, window, document, scrolls,
     open() { get("graph-show").click(); }, mode(value) { get("graph-period").value = value; get("graph-period").fire("change"); },
@@ -84,6 +92,9 @@ function app(records = fixture(), options = {}) {
     flush() { for (let loop = 0; frames.length && loop < 10; loop++) frames.splice(0).forEach((fn) => fn()); assert.equal(frames.length, 0); } };
 }
 const points = (a, field = "weight") => byClass(a.get(`graph-${field}-plot`), "graph-point");
+const attentionFixture = () => ({ "2041-01-01": day({ weight: "60", bodyFat: "16" }), "2041-01-02": day({ weight: "80", bodyFat: "35" }) });
+const attentionApp = (options = {}) => app(attentionFixture(), { today: "2041-01-03", ...options });
+const toggleAttention = (a, field = "weight") => a.get(`graph-${field}-attention`).children.find(item => item.tag === "button");
 const svg = (a, field = "weight") => a.get(`graph-${field}-plot`).children[0];
 function select(a, field, index) { svg(a, field).fire("click", { target: points(a, field)[index] }); }
 function custom(a, start, end) { a.mode("custom"); a.get("graph-start-date").value = start; a.get("graph-end-date").value = end; a.get("graph-apply-dates").click(); }
@@ -98,6 +109,70 @@ test("all six screen transitions show one screen, correct tabs and zero writes",
     }
   }
   assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
+});
+
+test("attention shows both reasons, counts one point per metric, confirms and manually releases without record writes", async () => {
+  const a = attentionApp(), before = a.store.raw; a.open();
+  for (const field of ["weight", "bodyFat"]) {
+    assert.match(a.get(`graph-${field}-attention-count`).textContent, /1件/);
+    assert.equal(byClass(svg(a, field), "graph-attention-mark").length, 1);
+    assert.match(text(a.get(`graph-${field}-attention`)), /固定上限/); assert.match(text(a.get(`graph-${field}-attention`)), /前回/);
+  }
+  await toggleAttention(a).click();
+  assert.match(a.get("graph-weight-attention-count").textContent, /0件/); assert.equal(points(a).length, 2);
+  assert.equal(byClass(svg(a), "graph-attention-mark").length, 0); assert.equal(toggleAttention(a).textContent, "未確認に戻す");
+  assert.match(a.get("graph-bodyFat-attention-count").textContent, /1件/);
+  await toggleAttention(a).click(); assert.match(a.get("graph-weight-attention-count").textContent, /1件/);
+  assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
+});
+
+test("confirmation survives reload, changed value, non-attention and changed conditions for the same date/field", async () => {
+  let settings = { ...appSettings.DEFAULTS.attention };
+  const a = attentionApp({ attention: () => ({ values: settings }) }); a.open(); await toggleAttention(a).click();
+  for (const weight of ["81", "60", "80"]) {
+    const records = attentionFixture(); records["2041-01-02"].weight = weight; a.store.raw = JSON.stringify(records); a.graphView.refresh();
+    assert.equal(toggleAttention(a).textContent, "未確認に戻す"); assert.match(a.get("graph-weight-attention-count").textContent, /0件/);
+  }
+  settings = { ...settings, weightMax: 90, weightChange: 100 }; a.graphView.refresh();
+  assert.equal(toggleAttention(a).textContent, "未確認に戻す"); settings = { ...appSettings.DEFAULTS.attention }; a.graphView.refresh();
+  assert.match(a.get("graph-weight-attention-count").textContent, /0件/);
+  const b = attentionApp({ extras: Object.fromEntries(a.store.extras) }); b.open();
+  assert.equal(toggleAttention(b).textContent, "未確認に戻す"); assert.equal(toggleAttention(b, "bodyFat").textContent, "確認済みにする");
+});
+
+test("pending confirmation is not optimistically shown as saved and period changes retain the captured target", async () => {
+  const locks = createLocks(); let release, acquired; const ready = new Promise(r => acquired = r);
+  const held = locks.request(RecordSave.LOCK_NAME, { mode: "exclusive" }, async () => { acquired(); await new Promise(r => release = r); });
+  await ready; const a = attentionApp({ locks }); a.open(); const job = toggleAttention(a).click();
+  assert.equal(toggleAttention(a).disabled, true); assert.match(a.get("graph-weight-attention-count").textContent, /1件/);
+  custom(a, "2041-01-01", "2041-01-01"); release(); await held; await job;
+  assert.equal(a.graphView.getState().selected.weight, "2041-01-01");
+  assert.deepEqual(acknowledgements.parse(a.store.extras.get(acknowledgements.KEY)), { "2041-01-02": { weight: true } });
+  custom(a, "2041-01-02", "2041-01-02"); assert.match(a.get("graph-weight-attention-count").textContent, /0件/);
+});
+
+for (const kind of ["write", "verify"]) test(`confirmation ${kind} failure is visible and never falsely confirmed`, async () => {
+  const a = attentionApp(); a.open(); a.store[kind === "write" ? "failAckWrite" : "failAckVerify"] = true;
+  await toggleAttention(a).click(); assert.equal(a.get("graph-ack-status").dataset.error, "true");
+  assert.match(a.get("graph-ack-status").textContent, /保存|照合/);
+  assert.equal(toggleAttention(a).textContent, "確認済みにする");
+  assert.match(a.get("graph-weight-attention-count").textContent, kind === "write" ? /1件/ : /確認状態不明/);
+  assert.equal(a.store.writes, 0);
+});
+
+test("corrupt confirmation is unknown rather than zero; ordinary record saving remains independent", async () => {
+  const a = attentionApp({ extras: { [acknowledgements.KEY]: "{broken" } }); a.open();
+  assert.match(a.get("graph-weight-attention-count").textContent, /確認状態不明/); assert.equal(toggleAttention(a).disabled, true);
+  assert.equal(a.store.ackWrites, 0); a.get("input-show").click(); a.hooks.loadDate("2041-01-02"); a.get("weight").value = "81";
+  assert.equal(await a.hooks.saveCurrentEntry(), true); assert.equal(a.store.extras.get(acknowledgements.KEY), "{broken");
+  assert.equal(JSON.parse(a.store.raw)["2041-01-02"].weight, "81");
+});
+
+test("unreadable confirmation and invalid attention settings do not invent a zero count or remove chart data", () => {
+  const a = attentionApp(); a.store.failAckRead = true; a.open(); assert.match(a.get("graph-weight-attention-count").textContent, /確認状態不明/);
+  const b = attentionApp({ attention: () => ({ values: appSettings.DEFAULTS.attention, error: "設定破損" }) }); b.open();
+  assert.match(b.get("graph-weight-attention-count").textContent, /判定できません/); assert.match(b.get("graph-settings-status").textContent, /設定破損/);
+  assert.equal(points(b).length, 2); assert.equal(b.store.writes, 0);
 });
 
 test("real script order boots the three-tab browser modules", () => {

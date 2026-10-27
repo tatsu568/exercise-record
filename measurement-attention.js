@@ -78,8 +78,8 @@
 
   // This is a resolved, in-memory contract, NOT a persisted acknowledgement schema.
   // Each item is { date, field, value: canonicalDecimal, status } where status is
-  // confirmed / unconfirmed / unknown. A future adapter must first validate the
-  // CURRENT revision and pending state; value equality alone cannot prevent ABA.
+  // confirmed / unconfirmed / unknown. The UI adapter resolves date + field
+  // acknowledgements against current points; persisted flags do not depend on value.
   // Undefined = not supplied; null = unavailable; missing items = unknown.
   function summarizeAttention(result, acknowledgementStates) {
     if (!object(result) || FIELDS.some((field) => !Array.isArray(result[field]))) throw new TypeError("注意判定結果が必要です");
