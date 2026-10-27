@@ -1081,6 +1081,7 @@
   function connectEvents() {
     FIELDS.date.addEventListener("input", updateDateSelection);
     FIELDS.date.addEventListener("change", updateDateSelection);
+    document.querySelector("#date-today").addEventListener("click", () => { FIELDS.date.value = localDateString(); updateDateSelection(); });
     document.querySelector("#date-apply").addEventListener("click", () => switchDate(FIELDS.date.value));
     document.querySelector("#date-reset").addEventListener("click", () => { FIELDS.date.value = activeDate; updateDateSelection(); });
     connectDateSwipe();

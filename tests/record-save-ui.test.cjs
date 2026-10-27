@@ -12,6 +12,7 @@ fixtureSource = fixtureSource.replace("function app(records = {})", "function ap
   .replace("const store = {", "const store = options.storage || {")
   .replace("locks: createLocks()", "locks: options.locks || createLocks()")
   .replace("isSecureContext: true", "isSecureContext: options.secure !== false")
+  .replace("}, Date,", "}, Date: options.Date || Date,")
   .replace("vm.runInNewContext(source, context);", 'if (options.deniedProperty) Object.defineProperty(context, "localStorage", {get() {throw new Error("storage getter denied");}}); vm.runInNewContext(source, context);');
 const fixtureContext = { require: createRequire(fixturePath), __dirname, module: { exports: {} }, Blob, Date, AbortController, console };
 vm.runInNewContext(fixtureSource + "\nmodule.exports={app,ready,day,backup};", fixtureContext);
@@ -192,6 +193,33 @@ test("retry control keeps compact spacing after removal of the custom input tool
 function selectCandidate(a, date) {
   a.get("#record-date").value = date; a.get("#record-date").events.input(); a.get("#record-date").events.change();
 }
+
+class LocalToday extends Date {
+  constructor(...args) { super(...(args.length ? args : [2041, 4, 12, 0, 15])); }
+}
+const TODAY = "2041-05-12";
+
+test("today uses the local date as a candidate only, supports cancel/apply, and never saves untouched records", async () => {
+  const a = instance({ [DATE]: day({ weight: "55" }), [TODAY]: day({ weight: "66" }) }, { Date: LocalToday });
+  const before = a.store.raw, row = a.hooks.exerciseRow();
+  a.get("#date-today").click();
+  assert.equal(a.get("#record-date").value, TODAY); assert.equal(a.get("#weight").value, "55");
+  assert.deepEqual(a.hooks.exerciseRow(), row); assert.equal(a.get("#date-actions").hidden, false);
+  a.get("#date-reset").click(); assert.equal(a.get("#record-date").value, DATE);
+  assert.equal(a.get("#date-actions").hidden, true);
+  a.get("#date-today").click(); await a.get("#date-apply").click();
+  assert.equal(a.get("#weight").value, "66"); assert.equal(a.get("#date-actions").hidden, true);
+  assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
+});
+
+test("today on the active local date is a no-op and can discard a different candidate without saving", () => {
+  const a = instance({ [TODAY]: day({ weight: "66" }) }, { Date: LocalToday }); a.hooks.loadDate(TODAY);
+  const before = a.store.raw;
+  a.get("#date-today").click(); assert.equal(a.get("#date-actions").hidden, true);
+  selectCandidate(a, DATE); a.get("#date-today").click();
+  assert.equal(a.get("#record-date").value, TODAY); assert.equal(a.get("#date-actions").hidden, true);
+  assert.equal(a.get("#weight").value, "66"); assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
+});
 function swipe(a, from = [150, 200], to = [270, 200], target = { closest: () => null }) {
   a.window.innerWidth = 390;
   const screen = a.get("#input-screen"), touch = ([clientX, clientY]) => ({ clientX, clientY });
