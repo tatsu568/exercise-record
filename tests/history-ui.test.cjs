@@ -429,7 +429,7 @@ test("an insecure HTTP context does not register the Service Worker", () => {
   }
 });
 
-test("v20 caches every app reference with fresh content, serves offline and replaces only older app caches", async () => {
+test("v21 caches every app reference with fresh content, serves offline and replaces only older app caches", async () => {
   const origin = "https://example.test/exercise-record/", events = {}, saved = new Map(), deleted = [];
   const httpCache = new Map([[new URL("script.js", origin).href, "old public input script"]]);
   const downloads = [];
@@ -452,15 +452,15 @@ test("v20 caches every app reference with fresh content, serves offline and repl
       saved.set(url.href, { ok: true, body });
     }
   } };
-  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v20"); return cache; },
-    keys: async () => ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "other-cache"], delete: async (name) => { deleted.push(name); },
+  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v21"); return cache; },
+    keys: async () => ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "other-cache"], delete: async (name) => { deleted.push(name); },
     match: async (request) => saved.get(request.url) };
   const context = { self, caches, URL, Request: WorkerRequest, fetch: async () => { networkCalls++; throw Error("offline"); } };
   Object.defineProperty(context, "localStorage", { get() { assert.fail("Service Worker must not access records"); } });
   vm.runInNewContext(fs.readFileSync(path.join(root, "service-worker.js"), "utf8"), context);
   events.install({ waitUntil: (promise) => { pending = promise; } }); await pending;
   assert.equal(httpCache.get(new URL("script.js", origin).href), fs.readFileSync(path.join(root, "script.js"), "utf8"));
-  assert.equal(downloads.length, 19);
+  assert.equal(downloads.length, 21);
   const refs = [...html.matchAll(/<(?:script|link)\b[^>]*(?:src|href)="([^"]+)"/g)].map((match) => match[1]);
   refs.push("./", "index.html", ...JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8")).icons.map((icon) => icon.src));
   assert.deepEqual(new Set(downloads), new Set(refs.map((reference) => new URL(reference, origin).href)));
@@ -475,7 +475,7 @@ test("v20 caches every app reference with fresh content, serves offline and repl
   }
   assert.equal(networkCalls, 0);
   events.activate({ waitUntil: (promise) => { pending = promise; } }); await pending;
-  assert.deepEqual(deleted, ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19"]); assert(skipped && claimed);
+  assert.deepEqual(deleted, ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20"]); assert(skipped && claimed);
 });
 
 
@@ -607,12 +607,12 @@ test("monthly ASCII formatting does not alter detail warning punctuation or save
   assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
 });
 
-test("v20 matches the current HTML CSS URL and preserves the history asset identifiers", () => {
+test("v21 matches the current HTML CSS URL and preserves the history asset identifiers", () => {
   const version = "0.3-history-separators-20261021", worker = fs.readFileSync(path.join(root, "service-worker.js"), "utf8");
   for (const file of ["record-history.js", "history-view.js"]) {
     assert(html.includes(`${file}?v=${version}`)); assert(worker.includes(`./${file}?v=${version}`));
   }
   assert(html.includes("style.css?v=0.4-gear-optical-20261024-up2"));
   assert(worker.includes("./style.css?v=0.4-gear-optical-20261024-up2"));
-  assert(worker.includes('const CACHE_NAME = "exercise-record-v20"'));
+  assert(worker.includes('const CACHE_NAME = "exercise-record-v21"'));
 });

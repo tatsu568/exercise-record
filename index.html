@@ -31,6 +31,7 @@
       <button id="input-show" type="button" aria-controls="input-screen" aria-pressed="true">入力</button>
       <button id="history-show" type="button" aria-controls="history-screen" aria-pressed="false">履歴</button>
       <button id="graph-show" type="button" aria-controls="graph-screen" aria-pressed="false">グラフ</button>
+      <button id="summary-show" type="button" aria-controls="summary-screen" aria-pressed="false">集計</button>
     </nav>
     <div id="input-screen">
     <fieldset id="entry-fields" class="entry-fields">
@@ -236,6 +237,29 @@
         </div>
       </section>
     </section>
+    <section id="summary-screen" aria-labelledby="summary-heading" hidden>
+      <h2 id="summary-heading" tabindex="-1">運動集計</h2>
+      <section class="card summary-controls" aria-label="集計期間">
+        <p id="summary-range" class="summary-range" aria-live="polite"></p>
+        <div class="summary-period-actions">
+          <button id="summary-previous" class="date-step" type="button">前の4週間</button>
+          <button id="summary-next" class="date-step" type="button">次の4週間</button>
+          <button id="summary-latest" class="date-step" type="button" disabled>最新</button>
+        </div>
+        <p id="summary-saved-days"></p>
+        <p id="summary-comparison-range" class="summary-note"></p>
+        <p id="summary-status" class="summary-note" role="status" aria-live="polite"></p>
+      </section>
+      <div id="summary-cards" class="summary-cards" role="group" aria-label="運動項目を選択"></div>
+      <section class="card" aria-labelledby="summary-chart-heading">
+        <h3 id="summary-chart-heading"></h3>
+        <div id="summary-plot" class="graph-plot"></div>
+      </section>
+      <div class="summary-notes">
+        <p id="summary-aggregation-note" class="summary-note">保存された値だけを集計します。空欄・欠落・不正値は対象外です。スタンディングは保存済みの値の平均で、初期値10を含む場合があります。実際の活動時間を保証するものではありません。</p>
+        <p id="summary-graph-note" class="summary-note">各週は月曜〜日曜です。データなしは棒を表示せず、保存された0は基準線と「0」で表示します。平均・平均との差は小数第2位まで表示します。</p>
+      </div>
+    </section>
     <section id="settings-screen" aria-labelledby="settings-heading" hidden>
       <div class="settings-header"><h2 id="settings-heading" tabindex="-1">設定</h2><button id="settings-back" class="date-step" type="button">戻る</button></div>
       <p class="settings-help">設定はこのブラウザ内に保存されます。Safariとホーム画面アプリでは保存領域が異なる場合があります。設定は記録のJSONバックアップには含まれません。</p>
@@ -287,5 +311,7 @@
   <script src="app-settings.js" defer></script>
   <script src="settings-view.js" defer></script>
   <script src="graph-view.js" defer></script>
+  <script src="exercise-summary.js" defer></script>
+  <script src="exercise-summary-view.js" defer></script>
 </body>
 </html>
