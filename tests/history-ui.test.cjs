@@ -425,7 +425,7 @@ test("an insecure HTTP context does not register the Service Worker", () => {
   }
 });
 
-test("v17 keeps existing assets offline and explicitly identifies deferred STEP 3/4 assets", async () => {
+test("v18 caches every app reference with fresh content, serves offline and replaces only older app caches", async () => {
   const origin = "https://example.test/exercise-record/", events = {}, saved = new Map(), deleted = [];
   const httpCache = new Map([[new URL("script.js", origin).href, "old public input script"]]);
   const downloads = [];
@@ -448,38 +448,30 @@ test("v17 keeps existing assets offline and explicitly identifies deferred STEP 
       saved.set(url.href, { ok: true, body });
     }
   } };
-  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v17"); return cache; },
-    keys: async () => ["exercise-record-v16", "exercise-record-v17", "other-cache"], delete: async (name) => { deleted.push(name); },
+  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v18"); return cache; },
+    keys: async () => ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "other-cache"], delete: async (name) => { deleted.push(name); },
     match: async (request) => saved.get(request.url) };
   const context = { self, caches, URL, Request: WorkerRequest, fetch: async () => { networkCalls++; throw Error("offline"); } };
   Object.defineProperty(context, "localStorage", { get() { assert.fail("Service Worker must not access records"); } });
   vm.runInNewContext(fs.readFileSync(path.join(root, "service-worker.js"), "utf8"), context);
   events.install({ waitUntil: (promise) => { pending = promise; } }); await pending;
   assert.equal(httpCache.get(new URL("script.js", origin).href), fs.readFileSync(path.join(root, "script.js"), "utf8"));
-  assert.equal(downloads.length, 11);
-  const refs = [...html.matchAll(/<script\b[^>]*src="([^"]+)"/g)].map((match) => match[1]);
-  refs.push(/<link rel="stylesheet" href="([^"]+)"/.exec(html)[1]);
-  // STEP 3/4 must not alter the public cache. STEP 6/7 must add these assets
-  // before publication; their offline failure here is intentional and checked.
+  assert.equal(downloads.length, 19);
+  const refs = [...html.matchAll(/<(?:script|link)\b[^>]*(?:src|href)="([^"]+)"/g)].map((match) => match[1]);
+  refs.push("./", "index.html", ...JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8")).icons.map((icon) => icon.src));
+  assert.deepEqual(new Set(downloads), new Set(refs.map((reference) => new URL(reference, origin).href)));
   const cssRef = /<link rel="stylesheet" href="([^"]+)"/.exec(html)[1];
-  const deferred = ["record-save.js", "body-graph.js", "measurement-attention.js", "attention-acknowledgements.js", "app-navigation.js", "app-settings.js", "settings-view.js", "graph-view.js", cssRef];
-  assert.equal(saved.has(new URL(cssRef, origin).href), false);
-  assert.equal(saved.get(new URL("style.css?v=0.3-history-separators-20261021", origin).href).body, fs.readFileSync(path.join(root, "style.css"), "utf8"));
-  assert.deepEqual(refs.filter((reference) => deferred.includes(reference)), deferred);
+  assert.equal(saved.get(new URL(cssRef, origin).href).body, fs.readFileSync(path.join(root, "style.css"), "utf8"));
+  assert.equal(saved.has(new URL("style.css?v=0.3-history-separators-20261021", origin).href), false);
   for (const reference of refs) {
     const url = new URL(reference, origin);
     events.fetch({ request: { method: "GET", url: url.href }, respondWith: (promise) => { pending = promise; } });
-    if (deferred.includes(reference)) {
-      assert.equal(saved.has(url.href), false);
-      await assert.rejects(pending, /offline/);
-      continue;
-    }
     const response = await pending; assert.equal(response.ok, true);
-    assert.equal(response.body, fs.readFileSync(path.join(root, url.pathname.slice("/exercise-record/".length)), "utf8"));
+    assert.equal(response.body, fs.readFileSync(path.join(root, url.pathname.slice("/exercise-record/".length) || "index.html"), "utf8"));
   }
-  assert.equal(networkCalls, deferred.length);
+  assert.equal(networkCalls, 0);
   events.activate({ waitUntil: (promise) => { pending = promise; } }); await pending;
-  assert.deepEqual(deleted, ["exercise-record-v16"]); assert(skipped && claimed);
+  assert.deepEqual(deleted, ["exercise-record-v16", "exercise-record-v17"]); assert(skipped && claimed);
 });
 
 
@@ -611,12 +603,12 @@ test("monthly ASCII formatting does not alter detail warning punctuation or save
   assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
 });
 
-test("history asset URLs keep their identifier while optical CSS awaits the release cache update", () => {
+test("v18 matches the current HTML CSS URL and preserves the history asset identifiers", () => {
   const version = "0.3-history-separators-20261021", worker = fs.readFileSync(path.join(root, "service-worker.js"), "utf8");
   for (const file of ["record-history.js", "history-view.js"]) {
     assert(html.includes(`${file}?v=${version}`)); assert(worker.includes(`./${file}?v=${version}`));
   }
   assert(html.includes("style.css?v=0.4-gear-optical-20261024-up2"));
-  assert(worker.includes(`./style.css?v=${version}`));
-  assert(worker.includes('const CACHE_NAME = "exercise-record-v17"'));
+  assert(worker.includes("./style.css?v=0.4-gear-optical-20261024-up2"));
+  assert(worker.includes('const CACHE_NAME = "exercise-record-v18"'));
 });
