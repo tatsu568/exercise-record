@@ -150,7 +150,7 @@
         </div>
       </div>
     </section>
-    <footer><span id="save-status" aria-live="polite">この端末に自動保存されます</span></footer>
+    <footer><span id="save-status" aria-live="polite">この端末に自動保存されます</span> <button id="save-retry" class="button backup-button" type="button" hidden>保存を再試行</button></footer>
     </div>
     <section id="history-screen" aria-labelledby="history-heading" hidden>
       <h2 id="history-heading" tabindex="-1">過去の記録</h2>
@@ -266,6 +266,7 @@
     <button id="input-next" type="button">次へ</button>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="record-save.js" defer></script>
   <script src="record-transfer.js" defer></script>
   <script src="numbers-csv.js" defer></script>
   <script src="script.js" defer></script>

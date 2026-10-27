@@ -133,9 +133,9 @@
     return { ...backup, warnings: recordWarnings(backup.records) };
   }
 
-  function readSnapshot(raw) {
+  function readSnapshot(raw, { strictValues = true } = {}) {
     const records = raw === null ? {} : parseJson(raw);
-    validateRecordsMap(records, { strictValues: true });
+    validateRecordsMap(records, { strictValues });
     return { raw, records };
   }
 
@@ -185,21 +185,10 @@
     return { records, counts };
   }
 
-  function commitRecords(storage, key, plan, choices, confirmation) {
+  async function commitRecords(storage, key, plan, choices, confirmation, { store } = {}) {
     if (confirmation?.backupConfirmed !== true || confirmation?.finalConfirmed !== true) fail("復元前バックアップと最終確認が必要です", "CONFIRMATION");
-    const candidate = buildCandidate(plan, choices);
-    // No await between the final snapshot check, single-key write, and read-back.
-    if (storage.getItem(key) !== plan.baselineRaw) fail("現在の記録が変更されました。ファイルを選び直して再検証してください", "STALE");
-    if (!candidate.counts.added && !candidate.counts.replaced) return candidate;
-    try { storage.setItem(key, JSON.stringify(candidate.records)); }
-    catch { fail("端末への保存に失敗しました。既存データは削除していません。空き容量・保存権限を確認してください", "WRITE_FAILED"); }
-    try {
-      const saved = readSnapshot(storage.getItem(key)).records;
-      if (Object.keys(saved).length !== candidate.counts.after || stable(saved) !== stable(candidate.records)) throw new Error("mismatch");
-    } catch {
-      fail("保存後の照合に失敗しました。自動再保存は行いません。復元前バックアップを保管し、現在の記録を再確認してください", "VERIFY_FAILED");
-    }
-    return candidate;
+    if (!store || store.storage !== storage || store.key !== key) fail("共通の排他保存処理が必要です", "LOCK_REQUIRED");
+    return store.commitImport(plan, choices, confirmation);
   }
 
   return Object.freeze({ DEFAULT_ENTRY, validateRecordsMap, parseBackup, readSnapshot, createPlan, buildCandidate, commitRecords, differences });

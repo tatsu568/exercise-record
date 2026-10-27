@@ -222,6 +222,7 @@ button { touch-action: manipulation; }
 .history-summary-values { --history-join-gap: .28em; }
 .history-summary-part { white-space: nowrap; }
 footer { padding: 2px 2px 4px; color: var(--muted); text-align: center; font-size: 12px; }
+#save-retry { margin-top: 8px; margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
 .toast { position: fixed; z-index: 10; top: max(12px, env(safe-area-inset-top)); left: 50%; padding: 11px 17px; border: 1px solid #ffffff80; border-radius: 999px; background: #25372feF; color: white; box-shadow: 0 5px 18px #0002; font-size: 14px; font-weight: 650; opacity: 0; pointer-events: none; transform: translate(-50%, -8px); transition: opacity .18s ease, transform .18s ease; white-space: nowrap; }
 .toast.visible { opacity: 1; transform: translate(-50%, 0); }
 .input-toolbar { position: fixed; z-index: 8; right: 0; bottom: 0; left: 0; display: flex; justify-content: flex-end; padding: 8px max(16px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); border-top: 1px solid var(--line); background: #f8faf8f2; backdrop-filter: blur(14px); }

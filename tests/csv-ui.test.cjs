@@ -1,4 +1,6 @@
 "use strict";
+const RecordSave = require("../record-save.js");
+const { createLocks } = require("./helpers/record-locks.cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -47,10 +49,10 @@ function app(records = {}) {
   const get = (selector) => { assert(elements.has(selector), selector); return elements.get(selector); };
   const store = { raw: JSON.stringify(records), writes: 0, fail: false,
     getItem() { return this.raw; }, setItem(_key, value) { this.writes++; if (this.fail) throw Error("quota"); this.raw = value; }, removeItem() { assert.fail("must not remove records"); } };
-  const navigator = { canShare: () => true, share: async (data) => { shared.push(data); }, clipboard: { write: async (value) => clipboard.push(value), writeText: async (value) => clipboard.push(value) } };
+  const navigator = { locks: createLocks(), canShare: () => true, share: async (data) => { shared.push(data); }, clipboard: { write: async (value) => clipboard.push(value), writeText: async (value) => clipboard.push(value) } };
   const window = { isSecureContext: true, confirm: () => true, addEventListener(name, fn) { listeners[name] = fn; }, requestAnimationFrame(fn) { frames.push(fn); } };
   const document = { querySelector: get, querySelectorAll: (selector) => selector === "[data-work]" ? work : selector === "[data-step]" ? steps : [], createElement(tag) { const node = new Element(tag); created.push(node); return node; }, body: { append() {} }, activeElement: null };
-  const context = { document, window, navigator, localStorage: store, RecordTransfer: transfer, NumbersCsv: csv, HTMLInputElement: Input, File, Blob, Date,
+  const context = { document, window, navigator, localStorage: store, RecordTransfer: transfer, RecordSave, AbortController, NumbersCsv: csv, HTMLInputElement: Input, File, Blob, Date,
     ClipboardItem: class { constructor(data) { this.data = data; } }, console: { warn() {}, error() {} }, setTimeout() { return 1; }, clearTimeout() {} };
   vm.runInNewContext(script, context);
   return { get, store, shared, clipboard, listeners, created, window, navigator, hooks: context.hooks, flushFrames() { frames.splice(0).forEach((fn) => fn()); } };
@@ -72,7 +74,7 @@ test("CSV selection/settings/conversion/preview/cancel never write; normal input
   const instance = app({ "2032-02-28": day({ weight: "50" }) }), original = instance.store.raw;
   instance.hooks.loadDate("2032-02-28"); await select(instance, null); assert.equal(instance.store.writes, 0);
   await select(instance); assert.equal(instance.get("#entry-fields").disabled, true); assert.equal(instance.get("#restore-start").disabled, true);
-  instance.hooks.saveCurrentEntry(); instance.hooks.switchDate("2032-03-01");
+  (await instance.hooks.saveCurrentEntry()); (await instance.hooks.switchDate("2032-03-01"));
   assert.equal(instance.get("#record-date").value, "2032-02-28"); preview(instance);
   assert.equal(instance.get("#restore-preview").hidden, false); assert.equal(instance.get("#restore-apply").disabled, true);
   assert.match(instance.get("#csv-summary").textContent, /変換成功：1日/);
@@ -83,7 +85,7 @@ test("CSV requires base-year acknowledgment and changing settings revokes the ol
   const instance = app(); await select(instance); preview(instance); await ready(instance);
   instance.get("#csv-year").events.input();
   assert.equal(instance.get("#csv-year-confirm").checked, false); assert.equal(instance.get("#restore-preview").hidden, true);
-  instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 0);
+  await instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 0);
   instance.get("#csv-preview-button").click(); assert.match(instance.get("#restore-status").textContent, /基準年/);
 });
 test("CSV malformed bytes/header, file read errors, conversion errors and no-file cancel preserve data", async () => {
@@ -92,7 +94,7 @@ test("CSV malformed bytes/header, file read errors, conversion errors and no-fil
   }
   const instance = app(); await select(instance, csvFile([row("2/29", { 10: "1km不明" })])); preview(instance);
   assert.equal(instance.get("#restore-preview").hidden, true); assert.match(instance.get("#csv-errors").children[0].textContent, /論理行2/);
-  assert.equal(instance.get("#csv-rows").children.length, 1); instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 0);
+  assert.equal(instance.get("#csv-rows").children.length, 1); await instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 0);
 });
 test("CSV conflict defaults keep; differences explicitly warn about lost values", async () => {
   const instance = app({ "2032-02-29": day({ weight: "50", basal: "1200", squat: 10 }) });
@@ -100,9 +102,9 @@ test("CSV conflict defaults keep; differences explicitly warn about lost values"
   const choice = instance.created.find((node) => node.tag === "select"); assert.equal(choice.value, "keep");
   assert.ok(choice.children.some((option) => option.textContent === "CSVで置換"));
   assert.ok(instance.created.some((node) => /既存値は空欄・0・OFF/.test(node.textContent)));
-  await ready(instance); instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 0);
+  await ready(instance); await instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 0);
   choice.value = "replace"; choice.events.change(); assert.equal(instance.get("#restore-final-confirm").checked, false);
-  instance.get("#restore-final-confirm").checked = true; instance.get("#restore-final-confirm").events.change(); instance.get("#restore-apply").click();
+  instance.get("#restore-final-confirm").checked = true; instance.get("#restore-final-confirm").events.change(); await instance.get("#restore-apply").click();
   assert.equal(instance.store.writes, 1); assert.equal(JSON.parse(instance.store.raw)["2032-02-29"].basal, "");
   assert.match(instance.get("#restore-status").textContent, /CSV取り込みと読み戻し照合が完了/);
 });
@@ -111,7 +113,7 @@ test("standing-only requires per-day selection, resets confirmations and does no
   assert.match(instance.get("#restore-summary").textContent, /記録日数：0日/);
   const checkbox = instance.created.find((node) => node.type === "checkbox"); assert.equal(checkbox.checked, false);
   checkbox.checked = true; checkbox.events.change(); assert.match(instance.get("#restore-summary").textContent, /記録日数：1日/);
-  await ready(instance); instance.get("#restore-apply").click();
+  await ready(instance); await instance.get("#restore-apply").click();
   assert.deepEqual(Object.keys(JSON.parse(instance.store.raw)), ["2032-02-29"]);
 });
 test("all converted rows are paginated with raw and converted values, including walk and body", async () => {
@@ -127,13 +129,13 @@ test("all converted rows are paginated with raw and converted values, including 
 });
 test("CSV requires saved pre-backup acknowledgment, both checkboxes and final dialog", async () => {
   const instance = app(); await select(instance); preview(instance);
-  instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 0);
+  await instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 0);
   instance.navigator.share = async () => { const error = Error("cancel"); error.name = "AbortError"; throw error; };
   await instance.get("#restore-prebackup").click(); assert.equal(instance.get("#restore-backup-confirm").disabled, true);
   instance.navigator.share = async (data) => { instance.shared.push(data); }; await ready(instance);
   const saved = JSON.parse(await instance.shared[0].files[0].text()); assert.deepEqual(saved.records, {});
-  instance.window.confirm = () => false; instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 0);
-  instance.window.confirm = () => true; instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 1);
+  instance.window.confirm = () => false; await instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 0);
+  instance.window.confirm = () => true; await instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 1);
 });
 test("CSV storage changes during config, preview and pre-backup invalidate the candidate", async () => {
   for (const phase of ["config", "preview", "backup", "silent"]) {
@@ -145,7 +147,7 @@ test("CSV storage changes during config, preview and pre-backup invalidate the c
     else instance.store.raw = external;
     if (phase === "config" || phase === "preview") instance.listeners.storage({ key: "exercise-record.entries.v1" });
     if (phase === "backup") await instance.get("#restore-prebackup").click();
-    instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 0); assert.equal(instance.store.raw, external);
+    await instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 0); assert.equal(instance.store.raw, external);
   }
 });
 test("CSV quota failure/read-back mismatch stop without deletion or automatic rollback", async () => {
@@ -153,8 +155,8 @@ test("CSV quota failure/read-back mismatch stop without deletion or automatic ro
     const instance = app({ "2032-02-28": day() }), original = instance.store.raw;
     await select(instance); preview(instance); await ready(instance);
     if (mismatch) instance.store.setItem = function () { this.writes++; this.raw = "{}"; }; else instance.store.fail = true;
-    instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 1); assert.equal(instance.store.raw, mismatch ? "{}" : original);
-    instance.hooks.saveCurrentEntry(); assert.equal(instance.store.writes, 1); assert.equal(instance.get("#restore-apply").disabled, true);
+    await instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 1); assert.equal(instance.store.raw, mismatch ? "{}" : original);
+    (await instance.hooks.saveCurrentEntry()); assert.equal(instance.store.writes, 1); assert.equal(instance.get("#restore-apply").disabled, true);
   }
 });
 test("late CSV read after cancel cannot restore a stale preview", async () => {
@@ -165,7 +167,7 @@ test("late CSV read after cancel cannot restore a stale preview", async () => {
 });
 test("after CSV commit JSON export/restore and four copy formats remain available", async () => {
   const instance = app({ "2032-02-28": day({ squat: 10 }) }); instance.hooks.loadDate("2032-02-28");
-  await select(instance); preview(instance); await ready(instance); instance.get("#restore-apply").click();
+  await select(instance); preview(instance); await ready(instance); await instance.get("#restore-apply").click();
   await instance.get("#backup-export").click();
   assert.equal(Object.keys(JSON.parse(await instance.shared.at(-1).files[0].text()).records).length, 2);
   for (const id of ["copy-exercise", "copy-body", "copy-weekly", "copy-weekly-body"]) await instance.get(`#${id}`).click();
@@ -173,7 +175,7 @@ test("after CSV commit JSON export/restore and four copy formats remain availabl
   const plain = await instance.clipboard[0][0].data["text/plain"].text(); assert.equal(plain.split("\t").length, 9);
   assert.equal((await instance.clipboard[1][0].data["text/plain"].text()).split("\t").length, 3);
   const file = { text: async () => JSON.stringify({ format: "exercise-record-backup", formatVersion: 1, exportedAt: "2032-03-01T00:00:00.000Z", records: { "2032-03-01": day({ weight: "51" }) } }) };
-  await instance.get("#restore-file").events.change({ target: { files: [file] } }); await ready(instance); instance.get("#restore-apply").click();
+  await instance.get("#restore-file").events.change({ target: { files: [file] } }); await ready(instance); await instance.get("#restore-apply").click();
   assert.equal(Object.keys(JSON.parse(instance.store.raw)).length, 3);
 });
 
@@ -184,7 +186,7 @@ test("header-only CSV and period with no records never generate dates or write",
       instance.get("#csv-start-date").value = "2032-03-01"; instance.get("#csv-year-confirm").checked = true;
       instance.get("#csv-preview-button").click();
     }
-    assert.equal(instance.get("#restore-apply").disabled, true); instance.get("#restore-apply").click();
+    assert.equal(instance.get("#restore-apply").disabled, true); await instance.get("#restore-apply").click();
     assert.equal(instance.store.raw, "{}"); assert.equal(instance.store.writes, 0);
   }
 });
@@ -198,14 +200,14 @@ test("year input errors can be corrected and re-previewed without selecting the 
 test("corrupt current storage and unsaved normal input both block CSV imports", async () => {
   const corrupt = app(); corrupt.store.raw = "{broken"; corrupt.listeners.storage({ key: "exercise-record.entries.v1" });
   await select(corrupt); assert.equal(corrupt.store.raw, "{broken"); assert.equal(corrupt.store.writes, 0);
-  const unsaved = app(); unsaved.store.fail = true; unsaved.get("#weight").value = "55"; unsaved.hooks.saveCurrentEntry();
+  const unsaved = app(); unsaved.store.fail = true; unsaved.get("#weight").value = "55"; (await unsaved.hooks.saveCurrentEntry());
   const writes = unsaved.store.writes; await select(unsaved);
   assert.equal(unsaved.get("#weight").value, "55"); assert.equal(unsaved.store.writes, writes);
 });
 
 test("storage read failure during CSV preview fails closed without writing", async () => {
   const instance = app(); await select(instance); instance.store.getItem = () => { throw Error("blocked"); }; preview(instance);
-  assert.match(instance.get("#restore-status").textContent, /停止/); instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 0);
+  assert.match(instance.get("#restore-status").textContent, /停止/); await instance.get("#restore-apply").click(); assert.equal(instance.store.writes, 0);
 });
 
 test("CSV conflict pages retain per-day choices, and in-flight backups cannot be started twice", async () => {

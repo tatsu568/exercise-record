@@ -1,4 +1,6 @@
 "use strict";
+const RecordSave = require("../record-save.js");
+const { createLocks } = require("./helpers/record-locks.cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -48,10 +50,10 @@ function app(records = {}) {
     removeItem() { assert.fail("must not delete storage"); }
   };
   const window = { isSecureContext: true, confirm: () => true, addEventListener(name, fn) { listeners[name] = fn; } };
-  const navigator = { canShare: () => true, share: async (data) => { shared.push(data); }, clipboard: { write: async (items) => clipboard.push(items), writeText: async (text) => clipboard.push(text) } };
+  const navigator = { locks: createLocks(), canShare: () => true, share: async (data) => { shared.push(data); }, clipboard: { write: async (items) => clipboard.push(items), writeText: async (text) => clipboard.push(text) } };
   const document = { querySelector: get, querySelectorAll: (selector) => selector === "[data-work]" ? work : selector === "[data-step]" ? steps : [],
     createElement(tag) { const node = new Element(tag); created.push(node); return node; }, body: { append() {} }, activeElement: null };
-  const context = { document, window, navigator, localStorage: store, RecordTransfer: transfer, HTMLInputElement: Input,
+  const context = { document, window, navigator, localStorage: store, RecordTransfer: transfer, RecordSave, AbortController, HTMLInputElement: Input,
     Blob, File, ClipboardItem: class { constructor(data) { this.data = data; } }, Date,
     console: { warn() {}, error() {} }, setTimeout() { return 1; }, clearTimeout() {} };
   vm.runInNewContext(source, context);
@@ -84,7 +86,7 @@ test("preview defaults to keep; input and date navigation cannot autosave until 
   assert.equal(instance.created.find((node) => node.tag === "select").value, "keep");
   assert.equal(instance.get("#entry-fields").disabled, true);
   assert.equal(instance.get("#restore-apply").disabled, true);
-  instance.hooks.saveCurrentEntry(); instance.hooks.switchDate("2032-02-29");
+  (await instance.hooks.saveCurrentEntry()); (await instance.hooks.switchDate("2032-02-29"));
   assert.equal(instance.get("#record-date").value, "2032-02-28");
   instance.hooks.cancelRestore();
   assert.equal(instance.get("#entry-fields").disabled, false);
@@ -97,13 +99,13 @@ test("backup cancellation, missing confirmations, and final dialog cancellation 
   instance.navigator.share = async () => { const error = new Error("cancelled"); error.name = "AbortError"; throw error; };
   await instance.hooks.prepareRestoreBackup();
   assert.equal(instance.get("#restore-backup-confirm").disabled, true);
-  instance.hooks.applyRestore(); assert.equal(instance.store.writes, 0);
+  (await instance.hooks.applyRestore()); assert.equal(instance.store.writes, 0);
   instance.navigator.share = async () => {};
   await instance.hooks.prepareRestoreBackup();
   instance.get("#restore-final-confirm").checked = true;
-  instance.hooks.applyRestore(); assert.equal(instance.store.writes, 0);
+  (await instance.hooks.applyRestore()); assert.equal(instance.store.writes, 0);
   await ready(instance); instance.window.confirm = () => false;
-  instance.hooks.applyRestore(); assert.equal(instance.store.writes, 0);
+  (await instance.hooks.applyRestore()); assert.equal(instance.store.writes, 0);
 });
 
 test("confirmed day replacement writes once, reads back, and refreshes the selected date without autosaving it", async () => {
@@ -111,7 +113,7 @@ test("confirmed day replacement writes once, reads back, and refreshes the selec
   instance.hooks.loadDate("2032-02-28");
   await instance.hooks.previewBackup(backup({ "2032-02-28": { weight: "0", future: "keep" }, "2032-02-29": day() }));
   const select = instance.created.find((node) => node.tag === "select"); select.value = "replace"; select.events.change();
-  await ready(instance); instance.hooks.applyRestore();
+  await ready(instance); (await instance.hooks.applyRestore());
   assert.equal(instance.store.writes, 1);
   assert.deepEqual(JSON.parse(instance.store.raw)["2032-02-28"], { weight: "0", future: "keep" });
   assert.equal(instance.get("#weight").value, "0"); assert.equal(instance.get("#basal").value, "");
@@ -124,7 +126,7 @@ test("storage update event invalidates preview; a silent update is also caught i
     const instance = app(); await instance.hooks.previewBackup(backup({ "2032-02-29": day() })); await ready(instance);
     const external = JSON.stringify({ "2032-02-27": day({ squat: 15 }) }); instance.store.raw = external;
     if (event) instance.listeners.storage({ key: "exercise-record.entries.v1" });
-    instance.hooks.applyRestore();
+    (await instance.hooks.applyRestore());
     assert.equal(instance.store.writes, 0); assert.equal(instance.store.raw, external);
     assert.equal(instance.get("#restore-apply").disabled, true);
     instance.hooks.cancelRestore(); assert.equal(instance.store.raw, external);
@@ -140,8 +142,8 @@ test("late file read completion after cancellation does not reopen preview or sa
 
 test("unsaved input after a normal write failure prevents restore from discarding that form", async () => {
   const instance = app(); instance.hooks.loadDate("2032-02-28"); instance.store.fail = true; instance.get("#weight").value = "60";
-  instance.hooks.saveCurrentEntry(); const original = instance.store.raw;
-  instance.hooks.switchDate("2032-02-29");
+  (await instance.hooks.saveCurrentEntry()); const original = instance.store.raw;
+  (await instance.hooks.switchDate("2032-02-29"));
   assert.equal(instance.get("#record-date").value, "2032-02-28");
   await instance.hooks.previewBackup(backup({ "2032-02-29": day() }));
   assert.match(instance.get("#restore-status").textContent, /保存エラー/);
@@ -164,10 +166,10 @@ test("write failure and read-back mismatch stop UI persistence without rollback"
     const external = JSON.stringify({ "2032-02-27": day({ weight: "0" }) });
     if (mismatch) instance.store.setItem = function () { this.writes++; this.raw = external; };
     else instance.store.fail = true;
-    instance.hooks.applyRestore();
+    (await instance.hooks.applyRestore());
     assert.equal(instance.store.raw, mismatch ? external : original);
     assert.equal(instance.store.writes, 1);
-    instance.hooks.saveCurrentEntry(); assert.equal(instance.store.writes, 1);
+    (await instance.hooks.saveCurrentEntry()); assert.equal(instance.store.writes, 1);
     assert.equal(instance.get("#restore-apply").disabled, true);
     if (mismatch) assert.match(instance.get("#save-status").textContent, /自動保存を停止/);
     instance.hooks.cancelRestore(); assert.equal(instance.store.writes, 1);
@@ -191,10 +193,10 @@ test("four copy formats and normal steppers/date-save behavior survive restorati
   assert.equal(week.split("\n")[0].split("\t").length, 10);
   await instance.get("#copy-exercise").click(); await instance.get("#copy-body").click();
   assert.deepEqual(Object.keys(instance.clipboard[0][0].data), ["text/html", "text/plain"]);
-  await instance.hooks.previewBackup(backup({ "2032-04-01": day({ weight: "51" }) })); await ready(instance); instance.hooks.applyRestore();
+  await instance.hooks.previewBackup(backup({ "2032-04-01": day({ weight: "51" }) })); await ready(instance); (await instance.hooks.applyRestore());
   assert.equal(JSON.stringify(instance.hooks.exerciseRow()), exercise); assert.equal(JSON.stringify(instance.hooks.bodyRow()), body);
   assert.equal(instance.hooks.weeklyCopyText("2032-03-08"), week); assert.equal(instance.hooks.weeklyBodyCopyText("2032-03-08"), weeklyBody);
-  const button = instance.steps.find((node) => node.dataset.step === "squat" && node.dataset.delta === "10"); button.click();
+  const button = instance.steps.find((node) => node.dataset.step === "squat" && node.dataset.delta === "10"); await button.click();
   assert.equal(JSON.parse(instance.store.raw)["2032-03-01"].squat, 20);
-  instance.hooks.switchDate("2032-04-01"); assert.equal(instance.get("#weight").value, "51");
+  (await instance.hooks.switchDate("2032-04-01")); assert.equal(instance.get("#weight").value, "51");
 });

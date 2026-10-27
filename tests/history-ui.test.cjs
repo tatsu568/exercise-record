@@ -1,4 +1,6 @@
 "use strict";
+const RecordSave = require("../record-save.js");
+const { createLocks } = require("./helpers/record-locks.cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
@@ -41,10 +43,10 @@ function app(records = {}, today = "2032-10-19", browserBoot = false, secureCont
     scrollTo(options) { scrollCalls.push({ ...options, inputVisible: !get("#input-screen").hidden, date: get("#record-date").value }); this.scrollY = options.top; } };
   const document = { querySelector: get, querySelectorAll: (selector) => selector === "[data-work]" ? work : selector === "[data-step]" ? steps : [],
     createElement: (tag) => new Element(tag), body: { append() {} }, activeElement: null };
-  const navigator = { canShare: () => true, share: async (data) => shared.push(data), clipboard: { write: async (data) => clipboard.push(data), writeText: async (data) => clipboard.push(data) },
+  const navigator = { locks: createLocks(), canShare: () => true, share: async (data) => shared.push(data), clipboard: { write: async (data) => clipboard.push(data), writeText: async (data) => clipboard.push(data) },
     serviceWorker: { register: async (url) => { registrations.push(url); } } };
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [today + "T12:00:00"])); } }
-  const context = { window, document, navigator, localStorage: store, RecordTransfer: transfer, NumbersCsv: csv, HTMLInputElement: Input,
+  const context = { window, document, navigator, localStorage: store, RecordTransfer: transfer, RecordSave, AbortController, NumbersCsv: csv, HTMLInputElement: Input,
     Date: Clock, File, Blob, ClipboardItem: class { constructor(data) { this.data = data; } }, console: { warn() {}, error() {} }, setTimeout() { return 1; }, clearTimeout() {} };
   vm.createContext(context); vm.runInContext(source, context);
   let screen;
@@ -135,20 +137,20 @@ test("opening a saved day in input bypasses save-on-switch and preserves all rec
   assert.equal(instance.get("squat-value").value, "15回"); assert.equal(instance.get("weight").value, "51.2");
   assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
 });
-test("unsaved input blocks browsing without losing the current form", () => {
-  const instance = app(); instance.get("weight").value = "51.25"; instance.store.fail = true; instance.hooks.saveCurrentEntry();
+test("unsaved input blocks browsing without losing the current form", async () => {
+  const instance = app(); instance.get("weight").value = "51.25"; instance.store.fail = true; (await instance.hooks.saveCurrentEntry());
   const writes = instance.store.writes; instance.screen.open();
   assert.equal(instance.get("history-screen").hidden, true); assert.equal(instance.get("weight").value, "51.25");
   assert.equal(instance.store.writes, writes); assert.match(instance.get("toast").textContent, /未保存/);
 });
-test("hidden input cannot save or switch dates while browsing", () => {
+test("hidden input cannot save or switch dates while browsing", async () => {
   const instance = app({ "2032-10-18": day() }), before = instance.store.raw; instance.screen.open();
-  const date = instance.get("record-date").value; instance.hooks.saveCurrentEntry(); instance.hooks.switchDate("2032-10-18");
+  const date = instance.get("record-date").value; (await instance.hooks.saveCurrentEntry()); (await instance.hooks.switchDate("2032-10-18"));
   assert.equal(instance.get("record-date").value, date); assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
 });
-test("input changes appear when history is reopened", () => {
+test("input changes appear when history is reopened", async () => {
   const instance = app({ "2032-10-18": day() }); instance.hooks.loadDate("2032-10-18");
-  instance.get("weight").value = "52.300"; instance.hooks.saveCurrentEntry(); const writes = instance.store.writes;
+  instance.get("weight").value = "52.300"; (await instance.hooks.saveCurrentEntry()); const writes = instance.store.writes;
   instance.screen.open(); select(instance, "2032-10-18"); assert.match(text(instance.get("history-detail-values")), /52.300 kg/);
   instance.screen.close(); instance.screen.open(); assert.equal(instance.store.writes, writes);
 });
@@ -175,7 +177,7 @@ test("JSON restore preview cannot overlap history and restored records appear af
   const file = { text: async () => JSON.stringify({ format: "exercise-record-backup", formatVersion: 1, exportedAt: "2032-10-19T00:00:00.000Z", records: { "2032-10-18": day({ weight: "51" }) } }) };
   await instance.hooks.previewBackup(file); assert.equal(instance.get("history-show").disabled, true);
   instance.screen.open(); assert.equal(instance.get("history-screen").hidden, true);
-  await ready(instance); instance.get("restore-apply").click(); const writes = instance.store.writes;
+  await ready(instance); await instance.get("restore-apply").click(); const writes = instance.store.writes;
   assert.equal(writes, 1); instance.screen.open(); select(instance, "2032-10-18");
   assert.match(text(instance.get("history-detail-values")), /51 kg/); assert.equal(instance.store.writes, writes);
 });
@@ -185,14 +187,14 @@ test("CSV imported records become visible without a second write", async () => {
   await instance.get("csv-file").events.change({ target: { files: [{ name: "fictional.csv", arrayBuffer: async () => new TextEncoder().encode(document).buffer }] } });
   instance.get("csv-year").value = "2032"; instance.get("csv-start-date").value = "2032-10-01"; instance.get("csv-end-date").value = "2032-10-31";
   instance.get("csv-year-confirm").checked = true; instance.get("csv-preview-button").click();
-  await ready(instance); instance.get("restore-apply").click(); assert.equal(instance.store.writes, 1);
+  await ready(instance); await instance.get("restore-apply").click(); assert.equal(instance.store.writes, 1);
   instance.screen.open(); select(instance, "2032-10-18"); assert.match(text(instance.get("history-detail-values")), /51.00 kg/); assert.equal(instance.store.writes, 1);
 });
 test("normal input, dates, four copies and backup survive history navigation", async () => {
   const instance = app({ "2032-10-18": day({ squat: 10 }) }); instance.screen.open(); select(instance, "2032-10-18"); instance.get("history-edit").click();
-  instance.steps.find((item) => item.dataset.step === "squat" && item.dataset.delta === "5").click();
+  await instance.steps.find((item) => item.dataset.step === "squat" && item.dataset.delta === "5").click();
   assert.equal(JSON.parse(instance.store.raw)["2032-10-18"].squat, 15);
-  instance.get("next-day").click(); assert.equal(instance.get("record-date").value, "2032-10-19");
+  await instance.get("next-day").click(); assert.equal(instance.get("record-date").value, "2032-10-19");
   for (const id of ["copy-exercise", "copy-body", "copy-weekly", "copy-weekly-body"]) await instance.get(id).click();
   assert.equal(instance.clipboard.length, 4); assert.deepEqual(Object.keys(instance.clipboard[0][0].data), ["text/html", "text/plain"]);
   assert.equal((await instance.clipboard[0][0].data["text/plain"].text()).split("\t").length, 9);
@@ -460,7 +462,7 @@ test("v17 keeps existing assets offline and explicitly identifies deferred STEP 
   // STEP 3/4 must not alter the public cache. STEP 6/7 must add these assets
   // before publication; their offline failure here is intentional and checked.
   const cssRef = /<link rel="stylesheet" href="([^"]+)"/.exec(html)[1];
-  const deferred = ["body-graph.js", "app-navigation.js", "app-settings.js", "settings-view.js", "graph-view.js", cssRef];
+  const deferred = ["record-save.js", "body-graph.js", "app-navigation.js", "app-settings.js", "settings-view.js", "graph-view.js", cssRef];
   assert.equal(saved.has(new URL(cssRef, origin).href), false);
   assert.equal(saved.get(new URL("style.css?v=0.3-history-separators-20261021", origin).href).body, fs.readFileSync(path.join(root, "style.css"), "utf8"));
   assert.deepEqual(refs.filter((reference) => deferred.includes(reference)), deferred);

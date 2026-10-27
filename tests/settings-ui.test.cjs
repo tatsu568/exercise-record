@@ -1,4 +1,6 @@
 "use strict";
+const RecordSave = require("../record-save.js");
+const { createLocks } = require("./helpers/record-locks.cjs");
 const test = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
 const { File } = require("node:buffer");
@@ -54,15 +56,15 @@ function app(records = fixture(), options = {}) {
     getItem(key) { if (Object.values(settingsModel.KEYS).includes(key)) { if (this.settingFailRead) throw Error("settings read"); return settingValues.get(key) ?? null; } assert.equal(key, "exercise-record.entries.v1"); if (this.failRead) throw Error("read failed"); return this.raw; },
     setItem(key, value) { if (Object.values(settingsModel.KEYS).includes(key)) { if (this.settingFailWrite) throw Error("settings quota"); this.settingWrites.push(key); settingValues.set(key, value); this.afterSettingWrite?.(key,value); return; } assert.equal(key, "exercise-record.entries.v1"); if (this.failWrite) throw Error("quota"); this.writes++; this.raw = value; },
     clear() { assert.fail("no clear"); }, removeItem() { assert.fail("no remove"); } };
-  const window = { isSecureContext: false, confirm: () => true, scrollY: 0,
+  const window = { isSecureContext: true, confirm: () => true, scrollY: 0,
     addEventListener(name, fn) { (listeners[name] ||= []).push(fn); }, requestAnimationFrame(fn) { frames.push(fn); },
     scrollTo(args) { this.scrollY = args.top; scrolls.push(args); } };
   const document = { activeElement: null, documentElement: { get clientWidth() { return viewport.width; } },
     querySelector: (selector) => get(selector.slice(1)), querySelectorAll: (selector) => selector === "[data-work]" ? work : selector === "[data-step]" ? steps : [],
     createElement: (tag) => new Element(tag), createElementNS: (namespace, tag) => { assert.equal(namespace, "http://www.w3.org/2000/svg"); return new Element(tag); }, body: { append() {} } };
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [now.value + "T12:00:00"])); } }
-  const context = { document, window, localStorage: store, RecordTransfer: transfer, NumbersCsv: csv, HTMLInputElement: Input, Date: Clock,
-    navigator: { share: async (data) => shares.push(data), canShare: () => true, clipboard: { write: async (data) => copies.push(data), writeText: async (data) => copies.push(data) } },
+  const context = { document, window, localStorage: store, RecordTransfer: transfer, RecordSave, AbortController, NumbersCsv: csv, HTMLInputElement: Input, Date: Clock,
+    navigator: { locks: createLocks(), share: async (data) => shares.push(data), canShare: () => true, clipboard: { write: async (data) => copies.push(data), writeText: async (data) => copies.push(data) } },
     File, Blob, ClipboardItem: class { constructor(data) { this.data = data; } }, setTimeout() { return 1; }, clearTimeout() {}, console: { error() {}, warn() {} } };
   vm.createContext(context); vm.runInContext(script, context);
   let nav, graphView, historyView, settingsStore, settingsView;
@@ -196,7 +198,7 @@ test("equivalent draft needs no confirm and reentry does not reset editing", () 
   assert.equal(a.get("settings-goals-weightMin").value, "54"); assert.equal(a.get("settings-goals-form").hidden, false);
 });
 test("failed record autosave and JSON/CSV previews still block opening settings", async () => {
-  const a = app(); a.store.failWrite = true; a.get("weight").value = "57.5"; a.get("weight").fire("input");
+  const a = app(); a.store.failWrite = true; a.get("weight").value = "57.5"; await a.get("weight").fire("input");
   openSettings(a); assert.equal(a.nav.current(), "input"); assert.equal(a.get("weight").value, "57.5");
   for (const mode of ["json", "csv"]) {
     const b = app();
@@ -276,7 +278,7 @@ for (const type of ["json", "csv"]) test(`${type} committed import writes record
   }
   await a.get("restore-prebackup").click();
   a.get("restore-backup-confirm").checked = true; a.get("restore-final-confirm").checked = true;
-  a.get("restore-final-confirm").fire("change"); a.get("restore-apply").click();
+  a.get("restore-final-confirm").fire("change"); await a.get("restore-apply").click();
   assert.equal(a.store.writes, 1); assert.deepEqual(JSON.parse(a.store.raw)["2032-05-11"], incoming);
   assert.deepEqual([...a.store.settingValues], before); assert.equal(a.store.settingWrites.length, 2);
   assert.equal(Object.keys(JSON.parse(a.store.raw)["2032-05-11"]).length, 13);

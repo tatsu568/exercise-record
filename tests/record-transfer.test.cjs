@@ -1,8 +1,14 @@
 "use strict";
+const RecordSave = require("../record-save.js");
+const { createLocks } = require("./helpers/record-locks.cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const transfer = require("../record-transfer.js");
 const KEY = "exercise-record.entries.v1";
+function commit(storage, key, plan, choices, confirmation) {
+  const store = RecordSave.createStore({ storage, key, transfer, locks: createLocks(), isSecureContext: true });
+  return transfer.commitRecords(storage, key, plan, choices, confirmation, { store });
+}
 const day = (changes = {}) => ({ ...transfer.DEFAULT_ENTRY, ...changes });
 const text = (records, extra = {}) => JSON.stringify({ format: "exercise-record-backup", formatVersion: 1, exportedAt: "2032-03-01T01:02:03.000Z", records, ...extra });
 const confirmed = { backupConfirmed: true, finalConfirmed: true };
@@ -65,7 +71,7 @@ test("blank and string zero conflict; numeric zero is not a valid body string", 
   assert.throws(() => transfer.parseBackup(text({ "2032-02-28": { weight: 0 } })));
 });
 
-test("unknown daily fields are warned about and preserved, including nested objects", () => {
+test("unknown daily fields are warned about and preserved, including nested objects", async () => {
   const record = JSON.parse('{"weight":"0","extra":{"nested":[null,0,"0"]},"__proto__":{"safe":true}}');
   const backup = transfer.parseBackup(text({ "2032-02-28": record }));
   assert.ok(backup.warnings.some((warning) => warning.includes("未知")));
@@ -101,55 +107,55 @@ test("read-only preview and cancellation require no storage writes", () => {
   assert.equal(mock.raw, original);
 });
 
-test("pre-backup and final confirmations are both mandatory", () => {
+test("pre-backup and final confirmations are both mandatory", async () => {
   const mock = storage(null), plan = transfer.createPlan(null, { "2032-02-28": day() });
   for (const confirmation of [{}, { backupConfirmed: true }, { finalConfirmed: true }, { backupConfirmed: "yes", finalConfirmed: true }]) {
-    assert.throws(() => transfer.commitRecords(mock, KEY, plan, {}, confirmation), { code: "CONFIRMATION" });
+    await assert.rejects(() => commit(mock, KEY, plan, {}, confirmation), { code: "CONFIRMATION" });
   }
   assert.equal(mock.writes, 0);
 });
 
-test("single write and exact read-back preserve all values and count", () => {
+test("single write and exact read-back preserve all values and count", async () => {
   const original = { "2032-02-27": day({ weight: "52" }) };
   const incoming = { "2032-02-28": { distance: "0", weight: "0", unknown: "keep" } };
   const mock = storage(JSON.stringify(original));
-  const result = transfer.commitRecords(mock, KEY, transfer.createPlan(mock.raw, incoming), {}, confirmed);
+  const result = await commit(mock, KEY, transfer.createPlan(mock.raw, incoming), {}, confirmed);
   assert.equal(mock.writes, 1);
   assert.deepEqual(JSON.parse(mock.raw), { ...original, ...incoming });
   assert.equal(result.counts.after, 2);
 });
 
-test("empty and identical backups cause no setItem even after confirmation", () => {
+test("empty and identical backups cause no setItem even after confirmation", async () => {
   const records = { "2032-02-28": day() }, raw = JSON.stringify(records);
   for (const incoming of [{}, records]) {
     const mock = storage(raw);
-    transfer.commitRecords(mock, KEY, transfer.createPlan(raw, incoming), {}, confirmed);
+    await commit(mock, KEY, transfer.createPlan(raw, incoming), {}, confirmed);
     assert.equal(mock.writes, 0);
     assert.equal(mock.raw, raw);
   }
 });
 
-test("quota/write failure preserves original bytes and does not delete or retry", () => {
+test("quota/write failure preserves original bytes and does not delete or retry", async () => {
   const original = JSON.stringify({ "2032-02-28": day() }), mock = storage(original, true);
-  assert.throws(() => transfer.commitRecords(mock, KEY, transfer.createPlan(original, { "2032-02-29": day() }), {}, confirmed), { code: "WRITE_FAILED" });
+  await assert.rejects(() => commit(mock, KEY, transfer.createPlan(original, { "2032-02-29": day() }), {}, confirmed), { code: "WRITE_FAILED" });
   assert.equal(mock.raw, original);
   assert.equal(mock.writes, 1);
 });
 
-test("stale storage is rejected before writing", () => {
+test("stale storage is rejected before writing", async () => {
   const mock = storage(null), plan = transfer.createPlan(null, { "2032-02-28": day() });
   const external = JSON.stringify({ "2032-02-27": day({ squat: 15 }) });
   mock.raw = external;
-  assert.throws(() => transfer.commitRecords(mock, KEY, plan, {}, confirmed), { code: "STALE" });
+  await assert.rejects(() => commit(mock, KEY, plan, {}, confirmed), { code: "STALE" });
   assert.equal(mock.raw, external);
   assert.equal(mock.writes, 0);
 });
 
-test("read-back mismatch is reported and never rolled back over another writer", () => {
+test("read-back mismatch is reported and never rolled back over another writer", async () => {
   const mock = storage(null);
   const external = JSON.stringify({ "2032-02-27": day({ squat: 15 }) });
   mock.setItem = function () { this.writes++; this.raw = external; };
-  assert.throws(() => transfer.commitRecords(mock, KEY, transfer.createPlan(null, { "2032-02-28": day() }), {}, confirmed), { code: "VERIFY_FAILED" });
+  await assert.rejects(() => commit(mock, KEY, transfer.createPlan(null, { "2032-02-28": day() }), {}, confirmed), { code: "VERIFY_FAILED" });
   assert.equal(mock.raw, external);
   assert.equal(mock.writes, 1);
 });
@@ -160,15 +166,15 @@ test("invalid existing storage and invalid conflict choices are not silently rep
   assert.throws(() => transfer.buildCandidate(plan, { "2032-02-28": "unknown" }));
 });
 
-test("storage read failures before and after writing cannot produce a false success", () => {
+test("storage read failures before and after writing cannot produce a false success", async () => {
   const plan = transfer.createPlan(null, { "2032-02-28": day() });
   const before = storage(null);
   before.getItem = () => { throw new Error("blocked"); };
-  assert.throws(() => transfer.commitRecords(before, KEY, plan, {}, confirmed));
+  await assert.rejects(() => commit(before, KEY, plan, {}, confirmed));
   assert.equal(before.writes, 0);
   const after = storage(null);
   after.getItem = function () { if (this.writes) throw new Error("blocked"); return this.raw; };
-  assert.throws(() => transfer.commitRecords(after, KEY, plan, {}, confirmed), { code: "VERIFY_FAILED" });
+  await assert.rejects(() => commit(after, KEY, plan, {}, confirmed), { code: "VERIFY_FAILED" });
   assert.equal(after.writes, 1);
 });
 

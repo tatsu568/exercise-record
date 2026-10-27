@@ -22,6 +22,19 @@
   let toastTimer;
   let saveTimer;
   let lastFocusedInput = null;
+  // Delay access to the browser's storage property so denied access is caught
+  // by the same read/write error paths as getItem/setItem failures.
+  const recordStorage = { getItem(key) { return localStorage.getItem(key); },
+    setItem(key, value) { return localStorage.setItem(key, value); } };
+  let recordLocks;
+  try { recordLocks = navigator.locks; } catch { recordLocks = undefined; }
+  const recordStore = RecordSave.createStore({ storage: recordStorage, transfer: RecordTransfer,
+    locks: recordLocks, isSecureContext: window.isSecureContext });
+  let draftGeneration = 0;
+  let latestRequest = null;
+  let saveJob = null;
+  let navigationPending = false;
+  let saveFailure = null;
 
   function localDateString(date = new Date()) {
     const year = date.getFullYear();
@@ -35,8 +48,7 @@
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored === null) return {};
-      const parsed = JSON.parse(stored);
-      return validateRecordsMap(parsed);
+      return RecordTransfer.readSnapshot(stored, { strictValues: false }).records;
     } catch (error) {
       storageLoadError = error.message || "保存データを読み込めませんでした";
       console.error("保存データを読み込めませんでした。保存を停止します。", error);
@@ -56,9 +68,10 @@
     updateWeeklyPeriod(date);
   }
 
-  function switchDate(date) {
+  async function switchDate(date) {
     if (!date) return;
     if (restoreSession || historyBrowsing) { FIELDS.date.value = activeDate; return; }
+    if (navigationPending) { FIELDS.date.value = activeDate; return false; }
     if (date === activeDate) {
       FIELDS.date.value = activeDate;
       return;
@@ -68,9 +81,22 @@
       showToast("保存データを読み込めないため、日付変更を停止しています", 4000);
       return;
     }
-    // Persist the currently displayed entry under its original date before loading another.
-    if (!saveCurrentEntry()) { FIELDS.date.value = activeDate; return; }
-    loadDate(date);
+    // An unsupported HTTP context remains usable for read-only date browsing.
+    if (!recordStore.supported() && !hasUnsavedChanges) { loadDate(date); return true; }
+    FIELDS.date.value = activeDate;
+    navigationPending = true;
+    document.querySelector("#entry-fields").disabled = true;
+    try {
+      if (!await saveCurrentEntry()) return false;
+      entries = readEntries();
+      if (storageLoadError) return false;
+      loadDate(date);
+      return true;
+    } finally {
+      navigationPending = false;
+      document.querySelector("#entry-fields").disabled = Boolean(restoreSession);
+      FIELDS.date.value = activeDate;
+    }
   }
 
   function moveDateByDays(dayDelta) {
@@ -78,7 +104,7 @@
     if (![year, month, day].every(Number.isFinite)) return;
     // Use local noon so daylight-saving transitions cannot shift the calendar date.
     const date = new Date(year, month - 1, day + dayDelta, 12);
-    switchDate(localDateString(date));
+    return switchDate(localDateString(date));
   }
 
   function renderEntry() {
@@ -119,27 +145,68 @@
   }
 
   function saveCurrentEntry() {
-    if (restoreSession || historyBrowsing) return false;
-    if (storageLoadError) {
-      document.querySelector("#save-status").textContent = "保存データを読み込めないため、自動保存を停止中です";
-      return false;
-    }
+    if (restoreSession || historyBrowsing) return Promise.resolve(false);
     hasUnsavedChanges = true;
     captureForm();
-    entries[activeDate || FIELDS.date.value] = { ...currentEntry };
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-      hasUnsavedChanges = false;
-      const status = document.querySelector("#save-status");
-      status.textContent = "保存済み";
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => { status.textContent = "この端末に自動保存されます"; }, 1400);
-    } catch (error) {
-      document.querySelector("#save-status").textContent = "保存できません。ブラウザの空き容量を確認してください";
-      console.error("端末内への保存に失敗しました。", error);
-      return false;
+    latestRequest = { date: activeDate, entry: { ...currentEntry }, generation: ++draftGeneration };
+    clearTimeout(saveTimer);
+    // Keep capturing edits even when persistence is stopped, so a later stepper
+    // render cannot replace typed fields with an older in-memory draft.
+    if (storageLoadError || ["STALE", "INVALID_STORAGE", "VERIFY_FAILED"].includes(saveFailure?.code)) {
+      document.querySelector("#save-status").textContent = saveFailure?.message || "保存データを読み込めないため、自動保存を停止中です。入力はこの画面に保持しています";
+      updateSaveRetry();
+      return Promise.resolve(false);
     }
-    return true;
+    document.querySelector("#save-status").textContent = "保存待ち：入力はこの画面に保持しています";
+    if (!saveJob) saveJob = drainSaves();
+    updateSaveRetry();
+    return saveJob;
+  }
+
+  function updateSaveRetry() {
+    const button = document.querySelector("#save-retry");
+    button.hidden = !hasUnsavedChanges || !saveFailure;
+    button.disabled = Boolean(saveJob) || !recordStore.supported()
+      || ["STALE", "VERIFY_FAILED", "INVALID_STORAGE"].includes(saveFailure?.code);
+  }
+
+  function idleSaveStatus(message = "この端末に自動保存されます") {
+    if (storageLoadError) return "保存データを読み込めないため、自動保存を停止中です";
+    return recordStore.supported() ? message : "この接続では安全に保存できません。保存済み記録は閲覧できます。入力・復元はHTTPSのテスト用URLで行ってください";
+  }
+
+  async function drainSaves() {
+    // Defer execution until saveJob is assigned, including synchronous failures.
+    await Promise.resolve();
+    try {
+      while (latestRequest) {
+        let selected;
+        const result = await recordStore.saveDay(() => {
+          selected = latestRequest;
+          return { ...selected, expected: entries[selected.date] };
+        }, { onAcquired() { document.querySelector("#save-status").textContent = "保存中：まだ画面を閉じないでください"; } });
+        entries = result.records;
+        if (latestRequest === selected) latestRequest = null;
+        if (!latestRequest && result.generation === draftGeneration) {
+          hasUnsavedChanges = false; saveFailure = null;
+          document.querySelector("#save-status").textContent = "保存済み";
+          const generation = draftGeneration;
+          saveTimer = setTimeout(() => {
+            if (!hasUnsavedChanges && generation === draftGeneration && !restoreSession) document.querySelector("#save-status").textContent = "この端末に自動保存されます";
+          }, 1400);
+        }
+      }
+      return true;
+    } catch (error) {
+      saveFailure = error;
+      document.querySelector("#save-status").textContent = error.message || "保存できませんでした。入力内容はこの画面に残っています";
+      if (error.code === "VERIFY_FAILED" || error.outcome === "unknown") storageLoadError = "保存結果を確認できません。自動再保存を停止しています";
+      console.error("端末内への保存を確認できませんでした。", error);
+      return false;
+    } finally {
+      saveJob = null;
+      updateSaveRetry();
+    }
   }
 
   function readBackupRecords() {
@@ -160,6 +227,10 @@
   }
 
   async function saveBackup() {
+    if (hasUnsavedChanges || saveJob) {
+      showToast("未保存の入力があります。保存を確認してからバックアップしてください。入力を失わないよう控えてください", 5000);
+      return false;
+    }
     try {
       const records = readBackupRecords();
       const backup = {
@@ -327,6 +398,7 @@
   }
 
   function resetCsvPreview() {
+    if (restoreSession?.applying) return;
     if (restoreSession?.mode !== "csv") return;
     clearCsvConflictIndex();
     restoreSession.plan = null;
@@ -345,6 +417,7 @@
 
   function buildCsvPreview() {
     const session = restoreSession;
+    if (session?.applying) return;
     if (session?.mode !== "csv" || !session.source || session.stale) return;
     resetCsvPreview();
     try {
@@ -532,7 +605,7 @@
       }
       select.value = restoreSession.choices[row.date] || "keep";
       select.addEventListener("change", () => {
-        if (!restoreSession || restoreSession.stale) return;
+        if (!restoreSession || restoreSession.stale || restoreSession.applying) return;
         restoreSession.choices[row.date] = select.value;
         document.querySelector("#restore-final-confirm").checked = false;
         updateRestoreTotals();
@@ -546,6 +619,7 @@
   }
 
   function updateRestoreTotals() {
+    if (restoreSession?.applying) { document.querySelector("#restore-apply").disabled = true; return; }
     if (!restoreSession?.plan) return;
     const { counts } = RecordTransfer.buildCandidate(restoreSession.plan, restoreSession.choices);
     const summary = `追加${counts.added}件・置換${counts.replaced}件・スキップ${counts.skipped}件（うち一致${counts.same}件）／保存日数${counts.before}→${counts.after}日`;
@@ -559,7 +633,7 @@
 
   async function prepareRestoreBackup() {
     const session = restoreSession;
-    if (!session?.plan || session.stale || session.backupInProgress) return;
+    if (!session?.plan || session.stale || session.applying || session.backupInProgress) return;
     clearRestoreConfirmations();
     session.backupPrepared = false;
     session.backupInProgress = true;
@@ -596,23 +670,33 @@
     hasUnsavedChanges = false;
     loadDate(activeDate);
     clearTimeout(saveTimer);
-    document.querySelector("#save-status").textContent = storageLoadError ? "保存データを読み込めないため、自動保存を停止中です" : "この端末に自動保存されます";
+    document.querySelector("#save-status").textContent = idleSaveStatus();
   }
 
   function cancelRestore() {
+    if (restoreSession?.applying) { showToast("保存結果の確認が終わるまでお待ちください"); return; }
     if (restoreSession) finishRestoreSession();
     document.querySelector("#restore-panel").hidden = true;
     setRestoreMessage("");
   }
 
-  function applyRestore() {
+  async function applyRestore() {
     const session = restoreSession;
-    if (!session?.plan || session.stale || !session.backupPrepared || !document.querySelector("#restore-backup-confirm").checked || !document.querySelector("#restore-final-confirm").checked) return;
+    if (!session?.plan || session.applying || session.stale || !session.backupPrepared || !document.querySelector("#restore-backup-confirm").checked || !document.querySelector("#restore-final-confirm").checked) return;
     const { counts } = RecordTransfer.buildCandidate(session.plan, session.choices);
     if (counts.added + counts.replaced === 0) return;
     if (!window.confirm(`追加${counts.added}件・置換${counts.replaced}件を反映します。保存日数は${counts.before}→${counts.after}日です。復元前バックアップを保存・確認済みですか？`)) return;
+    session.applying = true;
+    document.querySelector("#restore-apply").disabled = true;
+    document.querySelector("#restore-cancel").disabled = true;
+    document.querySelector("#restore-prebackup").disabled = true;
+    document.querySelector("#csv-options").disabled = true;
+    document.querySelector("#restore-backup-confirm").disabled = true;
+    document.querySelector("#restore-final-confirm").disabled = true;
+    document.querySelectorAll("#restore-panel select").forEach((select) => { select.disabled = true; });
+    setRestoreMessage("安全な保存の順番待ち・照合中です。画面を閉じずにお待ちください。");
     try {
-      const result = RecordTransfer.commitRecords(localStorage, STORAGE_KEY, session.plan, session.choices, { backupConfirmed: true, finalConfirmed: true });
+      const result = await RecordTransfer.commitRecords(recordStorage, STORAGE_KEY, session.plan, session.choices, { backupConfirmed: true, finalConfirmed: true }, { store: recordStore });
       finishRestoreSession();
       setRestoreMessage(`${session.mode === "csv" ? "CSV取り込み" : "復元"}と読み戻し照合が完了しました。追加${result.counts.added}件・置換${result.counts.replaced}件・スキップ${result.counts.skipped}件（うち一致${result.counts.same}件）／合計${result.counts.after}日。`);
     } catch (error) {
@@ -621,6 +705,9 @@
         storageLoadError = "復元後の保存内容を照合できませんでした";
         document.querySelector("#save-status").textContent = "復元後の照合に失敗したため、自動保存を停止中です";
       }
+    } finally {
+      session.applying = false;
+      document.querySelector("#restore-cancel").disabled = false;
     }
   }
 
@@ -631,14 +718,15 @@
       return;
     }
     if (hasUnsavedChanges) {
-      storageLoadError = "未保存の入力がある間に別の画面で記録が更新されました";
-      document.querySelector("#save-status").textContent = "別の画面で更新がありました。未保存の入力を控えてから再読み込みしてください";
+      // Keep the confirmed baseline and draft separate. The writer compares this
+      // day under the lock, and preserves unrelated dates from the latest map.
+      document.querySelector("#save-status").textContent = "別の画面で更新がありました。入力を保持し、保存時に同じ日付の競合を確認します";
       return;
     }
     entries = readEntries();
     loadDate(activeDate);
     clearTimeout(saveTimer);
-    document.querySelector("#save-status").textContent = storageLoadError ? "保存データを読み込めないため、自動保存を停止中です" : "別の画面の更新を読み込みました";
+    document.querySelector("#save-status").textContent = idleSaveStatus("別の画面の更新を読み込みました");
   }
 
   function updateStepperButtons() {
@@ -981,19 +1069,19 @@
     document.querySelector("#next-day").addEventListener("click", () => moveDateByDays(1));
     document.querySelectorAll("[data-work]").forEach((button) => button.addEventListener("click", () => {
       currentEntry.work = currentEntry.work === button.dataset.work ? "" : button.dataset.work;
-      renderEntry(); saveCurrentEntry();
+      renderEntry(); return saveCurrentEntry();
     }));
     FIELDS.kids.addEventListener("change", saveCurrentEntry);
     FIELDS.standing.addEventListener("input", () => {
       document.querySelector("#standing-value").value = FIELDS.standing.value;
-      saveCurrentEntry();
+      return saveCurrentEntry();
     });
     document.querySelectorAll("[data-step]").forEach((button) => button.addEventListener("click", () => {
       const key = button.dataset.step;
       const delta = Number(button.dataset.delta);
       const max = key === "march" ? 2 : Number.POSITIVE_INFINITY;
       currentEntry[key] = Math.max(0, Math.min(max, currentEntry[key] + delta));
-      renderEntry(); saveCurrentEntry();
+      renderEntry(); return saveCurrentEntry();
     }));
     Object.values(FIELDS).filter((field) => field instanceof HTMLInputElement && field.type === "number").forEach((input) => {
       input.addEventListener("input", saveCurrentEntry);
@@ -1009,6 +1097,9 @@
     document.querySelector("#copy-weekly").addEventListener("click", copyWeeklyExercise);
     document.querySelector("#copy-weekly-body").addEventListener("click", copyWeeklyBody);
     document.querySelector("#backup-export").addEventListener("click", saveBackup);
+    document.querySelector("#save-retry").addEventListener("click", () => {
+      if (!saveJob && !storageLoadError && !["STALE", "VERIFY_FAILED", "INVALID_STORAGE"].includes(saveFailure?.code)) return saveCurrentEntry();
+    });
     document.querySelector("#restore-start").addEventListener("click", () => {
       const input = document.querySelector("#restore-file");
       input.value = ""; input.click();
@@ -1032,13 +1123,17 @@
     document.querySelector("#csv-preview-button").addEventListener("click", buildCsvPreview);
     for (const [id, delta] of [["csv-page-prev", -1], ["csv-page-next", 1]]) {
       document.querySelector(`#${id}`).addEventListener("click", () => {
-        if (!restoreSession?.result) return;
+        if (!restoreSession?.result || restoreSession.applying) return;
         const max = Math.max(0, Math.ceil(restoreSession.result.rows.length / 10) - 1);
         restoreSession.page = Math.max(0, Math.min(max, restoreSession.page + delta)); renderCsvRows();
         if (restoreSession.plan && !restoreSession.stale) renderRestorePreview();
       });
     }
     window.addEventListener("storage", handleStorageChange);
+    window.addEventListener("pagehide", () => recordStore.cancelPending());
+    window.addEventListener("beforeunload", (event) => {
+      if (hasUnsavedChanges || saveJob || restoreSession?.applying) { event.preventDefault(); event.returnValue = ""; }
+    });
     if (window.visualViewport) {
       window.visualViewport.addEventListener("resize", positionInputToolbar);
       window.visualViewport.addEventListener("scroll", positionInputToolbar);
@@ -1049,7 +1144,7 @@
   window.RecordHistoryInput = Object.freeze({
     canBrowse() {
       if (restoreSession) return "復元・CSV取り込みの確認を閉じてから画面を切り替えてください";
-      if (hasUnsavedChanges) return "未保存の入力があります。入力内容を控え、保存エラーを解消してから画面を切り替えてください";
+      if (hasUnsavedChanges || saveJob || navigationPending) return "未保存または保存待ちの入力があります。保存を確認し、エラー時は入力内容を控えてから画面を切り替えてください";
       return "";
     },
     notify(message) { showToast(message, 5000); },
@@ -1058,7 +1153,7 @@
       historyBrowsing = open;
       if (!open && wasBrowsing && !hasUnsavedChanges) {
         entries = readEntries(); loadDate(activeDate);
-        document.querySelector("#save-status").textContent = storageLoadError ? "保存データを読み込めないため、自動保存を停止中です" : "この端末に自動保存されます";
+        document.querySelector("#save-status").textContent = idleSaveStatus();
       }
     },
     openSavedDate(date, expectedRaw) {
@@ -1081,6 +1176,8 @@
   if (storageLoadError) {
     document.querySelector("#save-status").textContent = "保存データを読み込めないため、自動保存を停止中です";
     showToast("保存データを読み込めません。既存データ保護のため保存を停止しています", 5000);
+  } else if (!recordStore.supported()) {
+    document.querySelector("#save-status").textContent = "この接続では安全に保存できません。保存済み記録は閲覧できます。入力・復元はHTTPSのテスト用URLで行ってください";
   }
   if ("serviceWorker" in navigator && window.isSecureContext) {
     window.addEventListener("load", () => navigator.serviceWorker.register("./service-worker.js").catch((error) => console.warn("オフライン用キャッシュを有効にできませんでした。", error)));

@@ -150,7 +150,7 @@ test("errors outside the period also stop import, not a partial save", () => {
   assert.equal(result.stats.outside, 1); assert.ok(result.errors.length); assert.throws(() => csv.selectedRecords(result));
 });
 
-test("CSV candidates use shared day conflicts, explicit replacement and one verified write", () => {
+test("CSV candidates use shared day conflicts, explicit replacement and one verified write", async () => {
   const incoming = csv.selectedRecords(convert([cells("2/28", { 12: "0" }), cells("2/29", { 7: "○" })]));
   const previous = { "2032-02-27": { weight: "1" }, "2032-02-28": { ...transfer.DEFAULT_ENTRY, weight: "55", basal: "1200" } };
   const raw = JSON.stringify(previous), plan = transfer.createPlan(raw, incoming);
@@ -159,7 +159,7 @@ test("CSV candidates use shared day conflicts, explicit replacement and one veri
   let writes = 0, saved = raw;
   const storage = { getItem: () => saved, setItem: (_key, value) => { writes++; saved = value; } };
   assert.equal(writes, 0);
-  const result = transfer.commitRecords(storage, "exercise-record.entries.v1", plan, { "2032-02-28": "replace" }, { backupConfirmed: true, finalConfirmed: true });
+  const result = await transfer.commitRecords(storage, "exercise-record.entries.v1", plan, { "2032-02-28": "replace" }, { backupConfirmed: true, finalConfirmed: true }, { store: require("../record-save.js").createStore({ storage, transfer, locks: require("./helpers/record-locks.cjs").createLocks(), isSecureContext: true }) });
   assert.equal(writes, 1); assert.equal(result.counts.after, 3);
   assert.equal(JSON.parse(saved)["2032-02-28"].basal, "");
   assert.deepEqual(JSON.parse(saved)["2032-02-27"], previous["2032-02-27"]);

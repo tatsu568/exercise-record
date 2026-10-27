@@ -1,4 +1,6 @@
 "use strict";
+const RecordSave = require("../record-save.js");
+const { createLocks } = require("./helpers/record-locks.cjs");
 const test = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
 const { File } = require("node:buffer");
@@ -52,15 +54,15 @@ function app(records = fixture(), options = {}) {
     getItem(key) { assert.equal(key, "exercise-record.entries.v1"); if (this.failRead) throw Error("read failed"); return this.raw; },
     setItem(key, value) { assert.equal(key, "exercise-record.entries.v1"); if (this.failWrite) throw Error("quota"); this.writes++; this.raw = value; },
     clear() { assert.fail("no clear"); }, removeItem() { assert.fail("no remove"); } };
-  const window = { isSecureContext: false, confirm: () => true, scrollY: 0,
+  const window = { isSecureContext: true, confirm: () => true, scrollY: 0,
     addEventListener(name, fn) { (listeners[name] ||= []).push(fn); }, requestAnimationFrame(fn) { frames.push(fn); },
     scrollTo(args) { this.scrollY = args.top; scrolls.push(args); } };
   const document = { activeElement: null, documentElement: { get clientWidth() { return viewport.width; } },
     querySelector: (selector) => get(selector.slice(1)), querySelectorAll: (selector) => selector === "[data-work]" ? work : selector === "[data-step]" ? steps : [],
     createElement: (tag) => new Element(tag), createElementNS: (namespace, tag) => { assert.equal(namespace, "http://www.w3.org/2000/svg"); return new Element(tag); }, body: { append() {} } };
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [now.value + "T12:00:00"])); } }
-  const context = { document, window, localStorage: store, RecordTransfer: transfer, NumbersCsv: csv, HTMLInputElement: Input, Date: Clock,
-    navigator: { share: async (data) => shares.push(data), canShare: () => true, clipboard: { write: async (data) => copies.push(data), writeText: async (data) => copies.push(data) } },
+  const context = { document, window, localStorage: store, RecordTransfer: transfer, RecordSave, AbortController, NumbersCsv: csv, HTMLInputElement: Input, Date: Clock,
+    navigator: { locks: createLocks(), share: async (data) => shares.push(data), canShare: () => true, clipboard: { write: async (data) => copies.push(data), writeText: async (data) => copies.push(data) } },
     File, Blob, ClipboardItem: class { constructor(data) { this.data = data; } }, setTimeout() { return 1; }, clearTimeout() {}, console: { error() {}, warn() {} } };
   vm.createContext(context); vm.runInContext(script, context);
   let nav, graphView, historyView;
@@ -125,16 +127,16 @@ test("late history scroll never runs after switching to graph", () => {
   a.get("history-edit").click(); a.open(); const count = a.scrolls.length; a.flush(); assert.equal(a.scrolls.length, count);
 });
 
-test("graph and history suppress normal saves; returning to input permits autosave", () => {
-  const a = app(); a.open(); assert.equal(a.hooks.saveCurrentEntry(), false);
-  a.get("history-show").click(); assert.equal(a.hooks.saveCurrentEntry(), false);
-  a.get("input-show").click(); a.get("weight").value = "57.5"; a.get("weight").fire("input");
+test("graph and history suppress normal saves; returning to input permits autosave", async () => {
+  const a = app(); a.open(); assert.equal((await a.hooks.saveCurrentEntry()), false);
+  a.get("history-show").click(); assert.equal((await a.hooks.saveCurrentEntry()), false);
+  a.get("input-show").click(); a.get("weight").value = "57.5"; await a.get("weight").fire("input");
   assert.equal(a.store.writes, 1); assert.equal(JSON.parse(a.store.raw)["2032-05-15"].weight, "57.5");
   a.open(); assert.equal(points(a).length, 4);
 });
 
-test("unsaved input after a write failure blocks graph and history without discarding it", () => {
-  const a = app(); a.store.failWrite = true; a.get("weight").value = "57.5"; a.get("weight").fire("input");
+test("unsaved input after a write failure blocks graph and history without discarding it", async () => {
+  const a = app(); a.store.failWrite = true; a.get("weight").value = "57.5"; await a.get("weight").fire("input");
   assert.equal(a.nav.show("graph"), false); assert.equal(a.nav.show("history"), false);
   assert.equal(a.nav.current(), "input"); assert.equal(a.get("weight").value, "57.5"); assert.equal(a.store.writes, 0);
 });
