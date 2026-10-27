@@ -37,6 +37,7 @@ test("each card selects the same single four-week graph, including no-data weeks
   const a = app(); a.openSummary();
   for (const field of ["squat", "march", "plank", "standing", "walkSteps", "distance"]) {
     card(a, field).click(); assert.equal(a.summary.getState().field, field);
+    assert.equal(a.get("summary-plot").dataset.field, field);
     assert.equal(a.get("summary-plot").children.length, 1); assert.equal(weeks(a).length, 4);
     assert.equal(a.get("summary-cards").children.filter(item => item.attrs["aria-pressed"] === "true").length, 1);
   }

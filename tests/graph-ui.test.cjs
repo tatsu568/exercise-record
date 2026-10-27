@@ -115,14 +115,17 @@ test("attention shows both reasons, counts one point per metric, confirms and ma
   const a = attentionApp(), before = a.store.raw; a.open();
   for (const field of ["weight", "bodyFat"]) {
     assert.match(a.get(`graph-${field}-attention-count`).textContent, /1件/);
+    assert.equal(a.get(`graph-${field}-attention-count`).dataset.empty, "false");
     assert.equal(byClass(svg(a, field), "graph-attention-mark").length, 1);
     assert.match(text(a.get(`graph-${field}-attention`)), /固定上限/); assert.match(text(a.get(`graph-${field}-attention`)), /前回/);
   }
   await toggleAttention(a).click();
   assert.match(a.get("graph-weight-attention-count").textContent, /0件/); assert.equal(points(a).length, 2);
+  assert.equal(a.get("graph-weight-attention-count").dataset.empty, "true");
   assert.equal(byClass(svg(a), "graph-attention-mark").length, 0); assert.equal(toggleAttention(a).textContent, "未確認に戻す");
   assert.match(a.get("graph-bodyFat-attention-count").textContent, /1件/);
   await toggleAttention(a).click(); assert.match(a.get("graph-weight-attention-count").textContent, /1件/);
+  assert.equal(a.get("graph-weight-attention-count").dataset.empty, "false");
   assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
 });
 
@@ -172,7 +175,11 @@ test("unreadable confirmation and invalid attention settings do not invent a zer
   const a = attentionApp(); a.store.failAckRead = true; a.open(); assert.match(a.get("graph-weight-attention-count").textContent, /確認状態不明/);
   const b = attentionApp({ attention: () => ({ values: appSettings.DEFAULTS.attention, error: "設定破損" }) }); b.open();
   assert.match(b.get("graph-weight-attention-count").textContent, /判定できません/); assert.match(b.get("graph-settings-status").textContent, /設定破損/);
+  assert.equal(a.get("graph-weight-attention-count").dataset.empty, "false");
+  assert.equal(b.get("graph-weight-attention-count").dataset.empty, "false");
   assert.equal(points(b).length, 2); assert.equal(b.store.writes, 0);
+  const c = app(); c.open(); assert.equal(c.get("graph-weight-attention-count").dataset.empty, "true");
+  c.store.raw = "{broken"; c.graphView.refresh(); assert.equal(c.get("graph-weight-attention-count").dataset.empty, "false");
 });
 
 test("real script order boots the three-tab browser modules", () => {

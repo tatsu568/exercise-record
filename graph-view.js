@@ -102,6 +102,7 @@
       } catch (error) { state.attentionError = `注意判定設定を確認してください：${error.message}`; }
       for (const field of FIELDS) {
         const count = state.attention?.counts[field];
+        get(`graph-${field}-attention-count`).dataset.empty = String(!state.attentionError && count?.unconfirmedAttention === 0);
         get(`graph-${field}-attention-count`).textContent = state.attentionError ? "注意件数：判定できません"
           : !count || count.unconfirmedAttention === null ? `確認状態不明（注意対象${count?.totalAttention ?? "不明"}件）`
           : `未確認 ${count.unconfirmedAttention}件`;
@@ -287,6 +288,7 @@
         get(`graph-${field}-empty`).hidden = true; get(`graph-${field}-selected`).textContent = "表示できません";
         get(`graph-${field}-previous`).disabled = true; get(`graph-${field}-next`).disabled = true;
         get(`graph-${field}-attention-count`).textContent = "注意情報を表示できません";
+        get(`graph-${field}-attention-count`).dataset.empty = "false";
         get(`graph-${field}-attention`).hidden = true;
         delete parts[field];
       }

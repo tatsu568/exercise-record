@@ -37,6 +37,7 @@
 
     function renderPlot() {
       const plot = get("summary-plot"), metric = model.METRICS.find(({ field }) => field === state.field);
+      plot.dataset.field = state.field;
       get("summary-chart-heading").textContent = `${metric.label}・週ごとの${metric.field === "standing" ? "平均" : "合計"}（${metric.unit}）`;
       plot.replaceChildren();
       if (!state.data) { plot.append(node("p", "保存データを確認できないため、表示できません")); return; }
