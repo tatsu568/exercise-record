@@ -92,7 +92,8 @@
         const card = cards[field], metric = state.data?.current.metrics[field], comparison = state.data?.comparisons[field];
         card.button.setAttribute("aria-pressed", String(field === state.field));
         card.value.textContent = !metric ? "表示できません" : metric.value === null ? "データなし" : metric.value + unit;
-        card.count.textContent = metric ? `${field === "standing" ? "平均対象" : "データのある日"}：${metric.count}日` : "有効日数：—";
+        card.count.textContent = metric ? `(${metric.count}/28)` : "(—/28)";
+        card.count.setAttribute("aria-label", metric ? `28日間のうち${metric.count}日分の有効データ` : "有効日数を確認できません");
         card.change.dataset.direction = comparison?.direction || "unavailable";
         card.change.textContent = !comparison || comparison.change === null ? "前4週と比較不可" : comparison.direction === "same" ? "前4週より 変化なし"
           : `前4週より ${comparison.direction === "increase" ? "+" : "−"}${comparison.change.replace(/^-/, "")}${unit}`;
@@ -113,7 +114,8 @@
       const button = node("button", undefined, "summary-card"), label = node("span", metric.label, "summary-card-label");
       button.type = "button"; button.dataset.field = metric.field; button.setAttribute("aria-controls", "summary-plot");
       const value = node("strong", "", "summary-card-value"), change = node("span", "", "summary-card-change"), count = node("span", "", "summary-card-count");
-      button.append(label, value, change, count); get("summary-cards").append(button);
+      const heading = node("span", undefined, "summary-card-heading"); heading.append(label, count);
+      button.append(heading, value, change); get("summary-cards").append(button);
       cards[metric.field] = { button, value, change, count };
       button.addEventListener("click", () => { state.field = metric.field; render(); });
     }

@@ -29,7 +29,7 @@ test("summary mounts as a fourth read-only tab, with six selectable cards and cu
   assert.equal(a.get("summary-cards").children.length, 6); assert.equal(a.get("summary-next").disabled, true);
   assert.equal(card(a, "squat").attrs["aria-pressed"], "true"); assert.match(text(card(a, "squat")), /15回.*\+10回/);
   assert.equal(card(a, "squat").children[2].dataset.direction, "increase");
-  assert.match(text(card(a, "standing")), /11時間.*平均対象：2日/);
+  assert.match(text(card(a, "standing")), /スタンディング平均.*\(2\/28\).*11時間/);
   assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0); assert.equal(a.store.ackWrites, 0);
 });
 
@@ -76,12 +76,32 @@ test("latest returns from past periods using today's local date and synchronizes
   assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0); assert.equal(a.store.ackWrites, 0);
 });
 
-test("unchanged aggregation and chart notes follow the graph outside its card, in a single bottom group", () => {
+test("aggregation and chart notes stay below the graph and explain the header day counts", () => {
   const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
   const section = html.slice(html.indexOf('<section id="summary-screen"'), html.indexOf('<section id="settings-screen"'));
   assert.match(section, /id="summary-cards"[\s\S]*?id="summary-plot"[^>]*><\/div>\s*<\/section>\s*<div class="summary-notes">\s*<p id="summary-aggregation-note"/);
-  assert.match(section, /保存された値だけを集計します。空欄・欠落・不正値は対象外です。スタンディングは保存済みの値の平均で、初期値10を含む場合があります。実際の活動時間を保証するものではありません。<\/p>\s*<p id="summary-graph-note"/);
+  assert.match(section, /保存された値だけを集計します。空欄・欠落・不正値は対象外です。スタンディングは保存済みの値の平均で、初期値10を含む場合があります。実際の活動時間を保証するものではありません。（7\/28）は、28日間のうち7日分の有効データがあることを表します。<\/p>\s*<p id="summary-graph-note"/);
   assert.match(section, /各週は月曜〜日曜です。データなしは棒を表示せず、保存された0は基準線と「0」で表示します。平均・平均との差は小数第2位まで表示します。<\/p>\s*<\/div>\s*<\/section>/);
+});
+
+test("all six header day counts use existing valid-day counts, include saved zero and leave values on their own line", () => {
+  const calendar = require("../body-graph.js");
+  const data = Object.fromEntries(Array.from({ length: 28 }, (_, i) => [calendar.addDays("2041-04-15", i), day({ distance: i < 7 ? "0" : "" })]));
+  const a = app(data), before = a.store.raw; a.openSummary();
+  for (const [field, days] of Object.entries({ squat: 28, march: 28, plank: 28, standing: 28, walkSteps: 0, distance: 7 })) {
+    const item = card(a, field), heading = item.children[0];
+    assert.equal(item.children.length, 3); assert.equal(heading.className, "summary-card-heading");
+    assert.equal(heading.children[1].textContent, `(${days}/28)`);
+    assert.equal(heading.children[1].attrs["aria-label"], `28日間のうち${days}日分の有効データ`);
+    assert.equal(item.children[1].tag, "strong"); assert.doesNotMatch(item.children[1].textContent, /\/28/);
+    assert.doesNotMatch(text(item), /データのある日|平均対象/);
+  }
+  assert.equal(card(a, "standing").children[1].textContent, "10時間");
+  assert.equal(card(a, "distance").children[1].textContent, "0km");
+  assert.equal(card(a, "walkSteps").children[1].textContent, "データなし");
+  assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
+  a.store.failRead = true; a.summary.refresh();
+  assert.equal(card(a, "standing").children[0].children[1].textContent, "(—/28)");
 });
 
 test("storage/focus rereads update data without writes and corrupt JSON clears stale totals safely", () => {
