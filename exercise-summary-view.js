@@ -45,7 +45,7 @@
       const plot = get("summary-plot"), metric = model.METRICS.find(({ field }) => field === state.field);
       const goal = state.goals[state.field], unit = unitText(metric);
       plot.dataset.field = state.field;
-      get("summary-chart-heading").textContent = `${metric.label}・週ごとの${metric.field === "standing" ? "平均" : "合計"}（${unit}）`;
+      get("summary-chart-heading").textContent = `${metric.label.replace(/(合計|平均)$/, "")}・週ごとの${metric.field === "standing" ? "平均" : "合計"} (${unit})`;
       plot.replaceChildren();
       if (!state.data) { plot.append(node("p", "保存データを確認できないため、表示できません")); return; }
       const rows = state.data.weeks.map((week) => ({ ...week, result: week.metrics[state.field] }));
@@ -113,7 +113,7 @@
         card.count.textContent = metric ? `(${days}/28)` : "(—/28)";
         card.count.setAttribute("aria-label", metric ? `28日間のうち${dayLabel}${days}日` : `${dayLabel}を確認できません`);
         const difference = progress.difference;
-        card.difference.textContent = progress.status === "ready" ? `目標${difference === "0" ? "±0" : difference.startsWith("-") ? "−" + displayNumber(field, difference.slice(1)) : "+" + displayNumber(field, difference)}${unit}` : "";
+        card.difference.textContent = progress.status === "ready" ? `目標${difference === "0" ? "±0" : difference.startsWith("-") ? "−" + displayNumber(field, difference.slice(1)) : "+" + displayNumber(field, difference)}` : "";
         card.change.dataset.achieved = String(progress.status === "ready" && progress.achieved);
         card.change.textContent = progress.status === "unset" ? "目標未設定" : progress.status === "no-data" ? "達成率 判定不可" : `達成率 ${progress.rate}%`;
       }

@@ -37,8 +37,12 @@ test("summary mounts as a fourth read-only tab, with six selectable cards and cu
 
 test("each card selects the same single four-week graph, including no-data weeks and saved zeros", () => {
   const a = app(); a.openSummary();
+  const titles = { squat: "スクワット・週ごとの合計 (回)", march: "足踏み・週ごとの合計 (回)", plank: "プランク・週ごとの合計 (秒)",
+    standing: "スタンディング・週ごとの平均 (H)", walkSteps: "散歩歩数・週ごとの合計 (歩)", distance: "散歩距離・週ごとの合計 (km)" };
   for (const field of ["squat", "march", "plank", "standing", "walkSteps", "distance"]) {
     card(a, field).click(); assert.equal(a.summary.getState().field, field);
+    assert.equal(a.get("summary-chart-heading").textContent, titles[field]);
+    assert.equal(card(a, field).children[0].children[0].textContent, titles[field].split("・")[0] + (field === "standing" ? "平均" : "合計"));
     assert.equal(a.get("summary-plot").dataset.field, field);
     assert.equal(a.get("summary-plot").children.length, 1); assert.equal(weeks(a).length, 4);
     assert.equal(a.get("summary-cards").children.filter(item => item.attrs["aria-pressed"] === "true").length, 1);
@@ -101,8 +105,8 @@ test("card values retain step separators and show signed goal differences with a
     assert.equal(v.children[0].className, "summary-card-number"); assert.equal(v.children[0].textContent, number);
     assert.equal(v.children[1].className, "summary-card-unit"); assert.equal(v.children[1].textContent, unit);
   }
-  for (const [field, difference, rate, achieved] of [["walkSteps", "目標+1,000歩", "105", true], ["plank", "目標+30秒", "125", true],
-    ["squat", "目標−10回", "97", false], ["march", "目標−4回", "0", false], ["standing", "目標+0.5H", "103", true]]) {
+  for (const [field, difference, rate, achieved] of [["walkSteps", "目標+1,000", "105", true], ["plank", "目標+30", "125", true],
+    ["squat", "目標−10", "97", false], ["march", "目標−4", "0", false], ["standing", "目標+0.5", "103", true]]) {
     assert.equal(card(a, field).children[1].children[1].textContent, difference);
     assert.equal(card(a, field).children[2].textContent, `達成率 ${rate}%`); assert.equal(card(a, field).children[2].dataset.achieved, String(achieved));
   }
@@ -110,7 +114,7 @@ test("card values retain step separators and show signed goal differences with a
   assert.equal(card(a, "distance").children[1].children[1].textContent, "");
   assert.doesNotMatch(text(a.get("summary-cards")), /前4週比|↗|↘/);
   a.get("summary-previous").click();
-  assert.equal(card(a, "walkSteps").children[1].children[1].textContent, "目標−1,611歩");
+  assert.equal(card(a, "walkSteps").children[1].children[1].textContent, "目標−1,611");
   assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0); assert.equal(a.store.ackWrites, 0);
 });
 
@@ -121,6 +125,15 @@ test("summary periods retain both years across New Year and abbreviate the end y
   assert.equal(a.store.writes, 0);
 });
 
+test("distance goal differences omit only their unit and retain fractional deficits and zero", () => {
+  const a = app({ "2041-04-15": { distance: "1.2" }, "2041-03-18": { distance: "2.4" } }, { distance: .6 }), before = a.store.raw;
+  a.openSummary(); assert.equal(card(a, "distance").children[1].children[1].textContent, "目標−1.2");
+  assert.equal(text(value(a, "distance")), "1.2km"); assert.equal(card(a, "distance").children[2].textContent, "達成率 50%");
+  a.get("summary-previous").click(); assert.equal(card(a, "distance").children[1].children[1].textContent, "目標±0");
+  assert.equal(text(value(a, "distance")), "2.4km"); assert.equal(card(a, "distance").children[2].dataset.achieved, "true");
+  assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
+});
+
 test("weekly target lines switch with the metric and current goals apply to past periods without writes", () => {
   const settingsModel = require("../app-settings.js"), a = app(records(), { squat: 80, standing: 15 }), before = a.store.raw;
   const line = () => a.get("summary-plot").children[0].children.find(e => e.attrs?.class === "summary-goal-line");
@@ -128,10 +141,10 @@ test("weekly target lines switch with the metric and current goals apply to past
   a.openSummary(); assert.equal(line().attrs["data-goal"], "80"); assert.equal(label().textContent, "目標 80回／週");
   assert.ok(Number(line().attrs.y1) >= 36 && Number(line().attrs.y1) <= 172); assert.equal(line().attrs.y1, line().attrs.y2);
   card(a, "standing").click(); assert.equal(line().attrs["data-goal"], "15"); assert.equal(label().textContent, "目標 15H／日");
-  a.get("summary-previous").click(); assert.equal(line().attrs["data-goal"], "15"); assert.equal(card(a, "standing").children[1].children[1].textContent, "目標−7H");
+  a.get("summary-previous").click(); assert.equal(line().attrs["data-goal"], "15"); assert.equal(card(a, "standing").children[1].children[1].textContent, "目標−7");
   a.store.extras.set(settingsModel.KEYS.exerciseGoals, JSON.stringify({ schemaVersion: 1, values: { ...settingsModel.DEFAULTS.exerciseGoals, standing: 8 } }));
   a.emit("storage", { key: settingsModel.KEYS.exerciseGoals }); assert.equal(line().attrs["data-goal"], "8");
-  assert.equal(card(a, "standing").children[2].textContent, "達成率 100%"); assert.equal(card(a, "standing").children[1].children[1].textContent, "目標±0H");
+  assert.equal(card(a, "standing").children[2].textContent, "達成率 100%"); assert.equal(card(a, "standing").children[1].children[1].textContent, "目標±0");
   card(a, "distance").click(); assert.equal(line(), undefined); assert.equal(card(a, "distance").children[2].textContent, "目標未設定");
   a.store.extras.set(settingsModel.KEYS.exerciseGoals, "{broken"); a.emit("focus"); assert.match(a.get("summary-goal-status").textContent, /破損/);
   assert.equal(a.store.extras.get(settingsModel.KEYS.exerciseGoals), "{broken"); assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
@@ -165,7 +178,7 @@ test("performed header counts update across periods independently of saved days 
   a.openSummary();
   for (const [field, count] of Object.entries({ squat: 1, march: 0, plank: 0, standing: 2, walkSteps: 0, distance: 1 })) assert.equal(days(field), `(${count}/28)`);
   assert.equal(a.get("summary-saved-days").textContent, "(2/28)"); assert.equal(text(value(a, "squat")), "15回");
-  assert.equal(card(a, "squat").children[1].children[1].textContent, "目標−5回"); assert.equal(card(a, "squat").children[2].textContent, "達成率 75%");
+  assert.equal(card(a, "squat").children[1].children[1].textContent, "目標−5"); assert.equal(card(a, "squat").children[2].textContent, "達成率 75%");
   card(a, "distance").click(); const plot = JSON.stringify(a.get("summary-plot").children);
   assert.equal(card(a, "distance").children[2].textContent, "達成率 100%");
   assert.deepEqual(Array.from(weeks(a), item => item.attrs["data-value"]), ["1.2", "0", "", ""]);
