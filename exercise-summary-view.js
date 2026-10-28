@@ -150,6 +150,8 @@
       if (!state.open) return;
       state.range = null; refresh();
     });
+    navigation.connectPeriodSwipe({ element: get("summary-screen"), window, enabled: () => state.open && !state.error,
+      move: (direction) => get(direction < 0 ? "summary-previous" : "summary-next").click() });
     navigation.register("summary", { heading: "summary-heading", onShow() { state.open = true; refresh(); }, onHide() { state.open = false; } });
     window.addEventListener("storage", (event) => { if (event.key === KEY || event.key === settingsModel.KEYS.exerciseGoals || event.key === null) refresh(); });
     for (const name of ["focus", "pageshow"]) window.addEventListener(name, refresh);

@@ -22,6 +22,23 @@ const value = (a, field) => card(a, field).children[1].children[0];
 const text = (element) => [element.textContent, ...element.children.map(text)].join(element.className === "summary-card-value" ? "" : " ");
 const weeks = (a) => a.get("summary-plot").children[0].children.filter(item => item.attrs?.class === "summary-week");
 
+test("summary swipes move one completed four-week period through existing controls without touching stored data", () => {
+  const a = app(records(), { squat: 5 }), before = a.store.raw; a.openSummary();
+  const swipe = (start, end, target = {}) => {
+    const screen = a.get("summary-screen");
+    screen.fire("touchstart", { target, touches: [{ clientX: start, clientY: 180 }] });
+    screen.fire("touchend", { touches: [], changedTouches: [{ clientX: end, clientY: 183 }] });
+  };
+  swipe(100,220); assert.equal(a.summary.getState().range.end, "2041-04-14");
+  assert.equal(text(value(a, "squat")), "5回"); assert.equal(card(a, "squat").children[2].textContent, "達成率 25%");
+  swipe(250,130); assert.equal(a.summary.getState().range.end, "2041-05-12");
+  swipe(250,130); assert.equal(a.summary.getState().range.end, "2041-05-12");
+  swipe(100,220,{ closest: () => ({}) }); assert.equal(a.summary.getState().range.end, "2041-05-12");
+  card(a, "standing").click(); assert.equal(a.summary.getState().field, "standing");
+  a.get("input-show").click(); swipe(100,220); assert.equal(a.summary.getState().range.end, "2041-05-12");
+  assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0); assert.equal(a.store.ackWrites, 0);
+});
+
 test("summary mounts as a fourth read-only tab, with six selectable cards and current/prior periods", () => {
   const a = app(), before = a.store.raw; a.openSummary();
   assert.equal(a.nav.current(), "summary"); assert.equal(a.get("input-screen").hidden, true);
@@ -88,8 +105,11 @@ test("aggregation and chart notes stay below the graph and explain the header da
   const section = html.slice(html.indexOf('<section id="summary-screen"'), html.indexOf('<section id="settings-screen"'));
   assert.match(section, /class="summary-period-heading">\s*<p id="summary-range"[^>]*><\/p>\s*<p id="summary-saved-days"><\/p>\s*<\/div>\s*<div class="summary-period-actions"/);
   assert.match(section, /id="summary-cards"[\s\S]*?id="summary-plot"[^>]*><\/div>\s*<\/section>\s*<div class="summary-notes">\s*<p id="summary-aggregation-note"/);
-  assert.match(section, /保存された値だけを集計します。空欄・欠落・不正値は対象外です。スタンディングは保存済みの値の平均で、初期値10を含む場合があります。実際の活動時間を保証するものではありません。\(○\/28\)は、期間横では保存済み記録日数、運動5項目では0より大きい実績の実施日数、スタンディングでは平均対象日数を表します。目標は現在の設定を全期間に適用します。記録が不足している場合も補完せず、保存済みの実績で達成率を計算します。<\/p>\s*<p id="summary-graph-note"/);
-  assert.match(section, /各週は月曜〜日曜です。データなしは棒を表示せず、保存された0は基準線と「0」で表示します。平均・平均との差は小数第2位まで表示します。<\/p>\s*<\/div>\s*<\/section>/);
+  assert.match(section, /項目横の\(7\/28\)は、運動5項目では実施日数、スタンディングでは平均対象日数です。未記録と0は区別します。/);
+  assert.match(section, /散歩はアプリに記録した分だけが対象です。<\/p>\s*<details class="summary-details">\s*<summary>集計について詳しく<\/summary>/);
+  assert.match(section, /保存された有効値だけを集計し、空欄・欠落・不正値は除外/);
+  for (const explanation of ["保存済み記録日数", "0より大きい実績の実施日数", "保存された0は有効値", "初期値10H", "実際の活動時間を保証するものではありません", "各週は月曜〜日曜", "平均・平均との差は小数第2位", "週間目標の4倍", "1日目標を直接比較", "記録不足を補完せず"]) assert(section.includes(explanation), explanation);
+  assert.match(section, /<\/details>\s*<\/div>\s*<\/section>/);
 });
 
 test("card values retain step separators and show signed goal differences with achievement badges", () => {

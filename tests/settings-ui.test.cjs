@@ -260,7 +260,7 @@ test("graph targets, band and axis update while custom period and selected point
   openSettings(a); edit(a); value(a, "weightMin", "70"); value(a, "weightMax", "80");
   assert.equal(target(a), "目標：56.0〜56.9kg"); save(a); a.get("settings-back").click();
   assert.equal(target(a), "目標：70.0〜80.0kg");
-  assert.deepEqual(a.graphView.getState().range, before.range); assert.deepEqual(a.graphView.getState().selected, before.selected);
+  assert.deepEqual(a.graphView.getState().range, before.range); assert.deepEqual(a.graphView.getState().selectedDate, before.selectedDate);
   assert.equal(a.get("graph-start-date").value, "2032-05-01"); assert.notEqual(text(a.get("graph-weight-plot")), axisBefore);
   assert.equal(byClass(a.get("graph-weight-plot"), "graph-target-band").length, 1); assert.equal(a.store.writes, 0);
 });

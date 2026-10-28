@@ -9,6 +9,32 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
+  // Match input-screen gestures, leaving vertical scrolling and controls native.
+  function connectPeriodSwipe({ element, window, enabled, move, width }) {
+    let start = null;
+    element.addEventListener("touchstart", (event) => {
+      start = null;
+      if (!enabled() || element.hidden || event.touches.length !== 1
+        || event.target?.closest?.("input, button, select, textarea, label, a, summary, [role=button], [contenteditable], .graph-plot, .graph-selected")) return;
+      const touch = event.touches[0], viewport = window.innerWidth || width();
+      if (touch.clientX < 24 || touch.clientX > viewport - 24) return;
+      start = { x: touch.clientX, y: touch.clientY };
+    }, { passive: true });
+    element.addEventListener("touchmove", (event) => {
+      if (!start) return;
+      if (event.touches.length !== 1) { start = null; return; }
+      const dx = Math.abs(event.touches[0].clientX - start.x), dy = Math.abs(event.touches[0].clientY - start.y);
+      if (dy > 40 || (dy > 18 && dy > dx)) start = null;
+    }, { passive: true });
+    element.addEventListener("touchend", (event) => {
+      const from = start; start = null;
+      if (!from || !enabled() || element.hidden || event.changedTouches.length !== 1 || event.touches?.length) return;
+      const dx = event.changedTouches[0].clientX - from.x, dy = event.changedTouches[0].clientY - from.y;
+      if (Math.abs(dx) >= 60 && Math.abs(dx) >= Math.abs(dy) * 2) move(dx > 0 ? -1 : 1);
+    }, { passive: true });
+    element.addEventListener("touchcancel", () => { start = null; }, { passive: true });
+  }
+
   function mount({ document, input }) {
     const views = new Map();
     let active = "input";
@@ -45,7 +71,8 @@
     }
 
     for (const name of ["input", "history", "graph"]) register(name);
-    return Object.freeze({ register, show, current: () => active });
+    return Object.freeze({ register, show, current: () => active,
+      connectPeriodSwipe: (options) => connectPeriodSwipe({ ...options, width: () => document.documentElement?.clientWidth || 0 }) });
   }
   return Object.freeze({ mount });
 });

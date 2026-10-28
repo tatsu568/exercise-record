@@ -56,8 +56,8 @@
       if (text !== undefined) item.textContent = text;
       return item;
     };
-    const state = { open: false, mode: "3m", anchor: null, offset: 0, custom: null, range: null,
-      records: {}, measurements: { weight: [], bodyFat: [], excluded: [] }, selected: { weight: null, bodyFat: null }, error: false,
+    const state = { open: false, mode: "all", anchor: null, offset: 0, custom: null, range: null,
+      records: {}, measurements: { weight: [], bodyFat: [], excluded: [] }, selectedDate: null, error: false,
       attention: null, acknowledgement: { confirmed: null, error: "" }, attentionError: "", busy: false, actionMessage: "", actionError: false };
     const parts = {};
     let resizeQueued = false;
@@ -77,12 +77,15 @@
     function choose(field, date) {
       const plot = parts[field];
       if (!state.open || state.error || !plot || !plot.data.points.some((point) => point.date === date)) return;
-      state.selected[field] = date; renderSelection(field);
+      state.selectedDate = date; renderSelection();
     }
-    function movePoint(field, delta) {
-      const points = parts[field]?.data.points || [], selection = model.selectionInfo(points, state.selected[field]);
-      const next = model.adjacentMeasurement(points, selection.index, delta);
-      if (next) choose(field, next.date);
+    function measurementDates() {
+      return [...new Set(FIELDS.flatMap(field => parts[field]?.data.points.map(point => point.date) || []))].sort();
+    }
+    function movePoint(delta) {
+      if (!state.open || state.error) return;
+      const dates = measurementDates(), index = dates.indexOf(state.selectedDate), next = index >= 0 && dates[index + delta];
+      if (next) { state.selectedDate = next; renderSelection(); }
     }
     function confirmed(date, field) { return state.acknowledgement.confirmed?.[date]?.[field] === true; }
     function attentionPoint(date, field) { return state.attention?.[field].find((point) => point.date === date); }
@@ -141,19 +144,28 @@
       } catch (error) { state.actionMessage = error.message; state.actionError = true; }
       finally { state.busy = false; refresh(); }
     }
-    function renderSelection(field) {
-      const plot = parts[field], points = plot?.data.points || [];
-      const selection = model.selectionInfo(points, state.selected[field]);
-      get(`graph-${field}-previous`).disabled = !selection.previous;
-      get(`graph-${field}-next`).disabled = !selection.next;
-      if (!selection.point) { state.selected[field] = null; get(`graph-${field}-selected`).textContent = ""; renderAttentionSelection(field, null); return; }
-      const point = points[selection.index]; state.selected[field] = point.date;
-      const x = plot.left + point.x, y = plot.top + point.y;
-      for (const [name, value] of Object.entries({ x1: x, x2: x, y1: plot.top, y2: plot.top + plot.height })) plot.guide.setAttribute(name, String(value));
-      plot.marker.setAttribute("cx", String(x)); plot.marker.setAttribute("cy", String(y));
-      plot.marker.dataset.date = point.date;
-      get(`graph-${field}-selected`).textContent = `${dateText(point.date)}　${point.raw}${field === "weight" ? "kg" : "%"}`;
-      renderAttentionSelection(field, point.date);
+    function renderSelection() {
+      const dates = measurementDates();
+      if (!dates.includes(state.selectedDate)) state.selectedDate = dates.at(-1) || null;
+      const index = dates.indexOf(state.selectedDate), values = {};
+      get("graph-point-previous").disabled = index <= 0;
+      get("graph-point-next").disabled = index < 0 || index >= dates.length - 1;
+      for (const field of FIELDS) {
+        const plot = parts[field], point = plot?.data.points.find(item => item.date === state.selectedDate);
+        values[field] = point ? point.raw + (field === "weight" ? "kg" : "%") : "—";
+        if (plot?.marker) {
+          plot.marker.setAttribute("visibility", point ? "visible" : "hidden");
+          plot.guide.setAttribute("visibility", point ? "visible" : "hidden");
+          plot.marker.dataset.date = point?.date || "";
+          if (point) {
+            const x = plot.left + point.x, y = plot.top + point.y;
+            for (const [name, value] of Object.entries({ x1: x, x2: x, y1: plot.top, y2: plot.top + plot.height })) plot.guide.setAttribute(name, String(value));
+            plot.marker.setAttribute("cx", String(x)); plot.marker.setAttribute("cy", String(y));
+          }
+        }
+        renderAttentionSelection(field, point ? state.selectedDate : null);
+      }
+      get("graph-selected").textContent = state.selectedDate ? `${dateText(state.selectedDate)}　${values.weight}　${values.bodyFat}` : "記録なし";
     }
     function tapPosition(svg, event, width, height) {
       if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return null;
@@ -220,14 +232,14 @@
       get(`graph-${field}-empty`).hidden = data.points.length > 0;
       const summary = get(`graph-${field}-summary`); summary.replaceChildren(); summary.hidden = !data.points.length;
       parts[field] = { data, width, height, left, top };
-      if (!data.points.length) { renderSelection(field); return; }
+      if (!data.points.length) return;
       const change = data.summary.change === null ? "—" : `${data.summary.change.startsWith("-") ? "−" + data.summary.change.slice(1)
         : data.summary.change === "0" ? "0" : "+" + data.summary.change}${field === "bodyFat" ? "pt" : data.summary.changeUnit}`;
       for (const [label, value] of [["最初", data.summary.first.raw + unit], ["最後", data.summary.last.raw + unit], ["変化量", change]]) {
         const item = node("dl"); item.append(node("dt", label + "："), node("dd", value)); summary.append(item);
       }
       const svg = svgNode("svg", { viewBox: `0 0 ${width} ${top + height + bottom}`, width, height: top + height + bottom,
-        role: "img", tabindex: "0", "aria-label": `${TITLES[field]}。測定${data.points.length}件。点をタップ、または下の前の測定・次の測定で選択できます。` });
+        role: "img", tabindex: "0", "aria-label": `${TITLES[field]}。測定${data.points.length}件。点をタップ、または下の共通の前の測定・次の測定で選択できます。` });
       if (data.targetBand.collapsed) svg.append(svgNode("line", { x1: left, x2: left + plotWidth, y1: top + data.targetBand.top, y2: top + data.targetBand.top, class: "graph-target-band" }));
       else svg.append(svgNode("rect", { x: left, y: top + data.targetBand.top, width: plotWidth, height: data.targetBand.height, class: "graph-target-band" }));
       for (const tick of data.yAxis.ticks) {
@@ -255,11 +267,10 @@
         if (point) choose(field, point.date);
       });
       svg.addEventListener("keydown", (event) => {
-        if (["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); movePoint(field, event.key === "ArrowLeft" ? -1 : 1); }
+        if (["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); movePoint(event.key === "ArrowLeft" ? -1 : 1); }
       });
       container.append(svg);
       renderDateTicks(svg, dateTicks, state.range, plotWidth, left, top + height, width);
-      renderSelection(field);
     }
     function controls() {
       get("graph-period").value = state.mode;
@@ -275,23 +286,25 @@
       }
     }
     function render(resetSelection = false) {
-      if (resetSelection) state.selected = { weight: null, bodyFat: null };
+      if (resetSelection) state.selectedDate = null;
       controls();
       const targets = getTargets();
       updateAttention();
       for (const field of FIELDS) renderField(field, targets);
+      renderSelection();
     }
     function showError(error) {
       state.error = true; status(`グラフを読み込めません：${error.message}。保存内容は変更していません。`, true);
       for (const field of FIELDS) {
         get(`graph-${field}-plot`).replaceChildren(); get(`graph-${field}-summary`).hidden = true;
-        get(`graph-${field}-empty`).hidden = true; get(`graph-${field}-selected`).textContent = "表示できません";
-        get(`graph-${field}-previous`).disabled = true; get(`graph-${field}-next`).disabled = true;
+        get(`graph-${field}-empty`).hidden = true;
         get(`graph-${field}-attention-count`).textContent = "注意情報を表示できません";
         get(`graph-${field}-attention-count`).dataset.empty = "false";
         get(`graph-${field}-attention`).hidden = true;
         delete parts[field];
       }
+      get("graph-selected").textContent = "表示できません";
+      get("graph-point-previous").disabled = true; get("graph-point-next").disabled = true;
       controls();
     }
     function refresh() {
@@ -341,9 +354,11 @@
         state.custom = next; state.range = next; status(""); render(true);
       } catch (error) { status(error.message, true); }
     });
-    for (const field of FIELDS) for (const [suffix, delta] of [["previous", -1], ["next", 1]]) {
-      get(`graph-${field}-${suffix}`).addEventListener("click", () => movePoint(field, delta));
+    for (const [suffix, delta] of [["previous", -1], ["next", 1]]) {
+      get(`graph-point-${suffix}`).addEventListener("click", () => movePoint(delta));
     }
+    navigation.connectPeriodSwipe({ element: get("graph-screen"), window, enabled: () => state.open && !state.error && !state.busy,
+      move: (direction) => get(direction < 0 ? "graph-previous" : "graph-next").click() });
     navigation.register("graph", { heading: "graph-heading", onShow() { state.open = true; refresh(); }, onHide() { state.open = false; } });
     function resize() {
       if (!state.open || state.error || resizeQueued) return;
@@ -364,7 +379,7 @@
     window.addEventListener("pagehide", () => acknowledgementStore.cancelPending());
     window.addEventListener("focus", refresh); window.addEventListener("pageshow", refresh);
     return Object.freeze({ open: () => navigation.show("graph"), refresh,
-      getState: () => ({ mode: state.mode, anchor: state.anchor, offset: state.offset, range: state.range && { ...state.range }, selected: { ...state.selected }, error: state.error }) });
+      getState: () => ({ mode: state.mode, anchor: state.anchor, offset: state.offset, range: state.range && { ...state.range }, selectedDate: state.selectedDate, error: state.error }) });
   }
   return Object.freeze({ mount, nearestPoint });
 });

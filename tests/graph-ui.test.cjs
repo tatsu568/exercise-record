@@ -98,6 +98,74 @@ const toggleAttention = (a, field = "weight") => a.get(`graph-${field}-attention
 const svg = (a, field = "weight") => a.get(`graph-${field}-plot`).children[0];
 function select(a, field, index) { svg(a, field).fire("click", { target: points(a, field)[index] }); }
 function custom(a, start, end) { a.mode("custom"); a.get("graph-start-date").value = start; a.get("graph-end-date").value = end; a.get("graph-apply-dates").click(); }
+function swipe(a, from = [100, 180], to = [220, 185], target = {}) {
+  const screen = a.get("graph-screen"), touch = ([clientX, clientY]) => ({ clientX, clientY });
+  screen.fire("touchstart", { target, touches: [touch(from)] });
+  screen.fire("touchmove", { touches: [touch(to)], preventDefault() { assert.fail("leave scrolling native"); } });
+  screen.fire("touchend", { touches: [], changedTouches: [touch(to)] });
+}
+
+test("one shared measurement row navigates the union of dates and hides highlights for absent values", () => {
+  const a = app({ "2041-01-01": day({ weight: "56.1" }), "2041-01-03": day({ bodyFat: "16.1" }),
+    "2041-01-05": day({ weight: "56.2", bodyFat: "16.2" }) }, { today: "2041-01-06" }), before = a.store.raw;
+  a.open(); assert.equal(a.graphView.getState().selectedDate, "2041-01-05");
+  a.get("graph-point-previous").click(); assert.equal(a.graphView.getState().selectedDate, "2041-01-03");
+  assert.equal(a.get("graph-selected").textContent, "2041/1/3　—　16.1%");
+  assert.equal(byClass(svg(a, "weight"), "graph-selection")[0].attrs.visibility, "hidden");
+  assert.equal(byClass(svg(a, "bodyFat"), "graph-selection")[0].attrs.visibility, "visible");
+  a.get("graph-point-previous").click(); assert.equal(a.get("graph-point-previous").disabled, true);
+  assert.equal(a.get("graph-selected").textContent, "2041/1/1　56.1kg　—");
+  assert.equal(byClass(svg(a, "bodyFat"), "graph-selection")[0].attrs.visibility, "hidden");
+  select(a, "bodyFat", 0); assert.equal(a.graphView.getState().selectedDate, "2041-01-03");
+  select(a, "weight", 1); assert.equal(a.graphView.getState().selectedDate, "2041-01-05");
+  custom(a, "2041-01-01", "2041-01-03"); assert.equal(a.graphView.getState().selectedDate, "2041-01-03");
+  assert.equal(a.get("graph-point-next").disabled, true);
+  custom(a, "2041-01-02", "2041-01-02"); assert.equal(a.graphView.getState().selectedDate, null);
+  assert.equal(a.get("graph-selected").textContent, "記録なし"); assert.equal(a.get("graph-point-previous").disabled, true);
+  assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0); assert.equal(a.store.ackWrites, 0);
+});
+
+test("graph has one single-line selection row after both chart cards and no per-chart measurement controls", () => {
+  assert.equal((html.match(/id="graph-selected"/g) || []).length, 1);
+  assert.equal((html.match(/>前の測定<\/button>/g) || []).length, 1); assert.equal((html.match(/>次の測定<\/button>/g) || []).length, 1);
+  assert.doesNotMatch(html, /id="graph-(?:weight|bodyFat)-(?:selected|previous|next)"/);
+  const section = html.slice(html.indexOf('<section id="graph-screen"'), html.indexOf('<section id="summary-screen"'));
+  assert.ok(section.indexOf('id="graph-weight-heading"') < section.indexOf('id="graph-bodyFat-heading"'));
+  assert.ok(section.indexOf('id="graph-bodyFat-heading"') < section.indexOf('id="graph-selected"'));
+  assert.match(section, /id="graph-bodyFat-attention"[^>]*><\/div>\s*<\/section>\s*<section class="card graph-shared-selection" aria-labelledby="graph-selected-heading">\s*<h3 id="graph-selected-heading">選択中の測定<\/h3>\s*<p id="graph-selected"/);
+  assert.match(section, /id="graph-selected"[^>]*>[^<]*<\/p>\s*<div class="graph-point-actions">\s*<button id="graph-point-previous"[^>]*>前の測定<\/button>\s*<button id="graph-point-next"[^>]*>次の測定<\/button>\s*<\/div>\s*<\/section>\s*<\/section>/);
+  const css = fs.readFileSync(path.join(root, "style.css"), "utf8");
+  assert.match(css, /\.graph-selected\s*\{[^}]*white-space: nowrap;[^}]*overflow-x: auto/);
+  assert.match(html, /<option value="all" selected>/);
+});
+
+test("graph swipes reuse period controls, retain manual mode and stop at latest/all/custom or hidden screens", () => {
+  const a = app(), before = a.store.raw; a.open(); const all = a.graphView.getState();
+  swipe(a); assert.deepEqual(a.graphView.getState(), all);
+  a.mode("1m"); swipe(a); assert.equal(a.graphView.getState().offset, -1); assert.equal(a.graphView.getState().mode, "1m");
+  swipe(a, [250, 180], [130, 185]); assert.equal(a.graphView.getState().offset, 0);
+  swipe(a, [250, 180], [130, 185]); assert.equal(a.graphView.getState().offset, 0);
+  assert.equal(a.graphView.getState().selectedDate, "2032-05-10");
+  a.mode("custom"); const customState = a.graphView.getState(); swipe(a); assert.deepEqual(a.graphView.getState(), customState);
+  a.mode("3m"); a.get("input-show").click(); swipe(a); assert.equal(a.graphView.getState().offset, 0);
+  assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0); assert.equal(a.store.ackWrites, 0);
+});
+
+test("period swipes ignore scrolling, small/diagonal movements, screen edges, controls, plots and multi-touch", () => {
+  const a = app(); a.open(); a.mode("3m");
+  for (const [from, to, target] of [[[100,180],[104,300]], [[100,180],[160,240]], [[100,180],[135,183]], [[10,180],[130,180]],
+    [[365,180],[245,180]], [[100,180],[220,180], { closest(selector) { assert.match(selector, /button/); return {}; } }],
+    [[100,180],[220,180], { closest(selector) { assert.match(selector, /\.graph-plot/); return {}; } }]]) {
+    swipe(a, from, to, target); assert.equal(a.graphView.getState().offset, 0);
+  }
+  const screen = a.get("graph-screen");
+  screen.fire("touchstart", { touches: [{ clientX:100,clientY:180 }, { clientX:120,clientY:180 }] });
+  screen.fire("touchend", { changedTouches: [{ clientX:220,clientY:180 }] }); assert.equal(a.graphView.getState().offset, 0);
+  screen.fire("touchstart", { touches: [{ clientX:100,clientY:180 }] }); screen.fire("touchcancel");
+  screen.fire("touchend", { changedTouches: [{ clientX:220,clientY:180 }] }); assert.equal(a.graphView.getState().offset, 0);
+  swipe(a); screen.fire("touchend", { changedTouches: [{ clientX:220,clientY:180 }] }); assert.equal(a.graphView.getState().offset, -1);
+  assert.equal(a.store.writes, 0);
+});
 
 test("all six screen transitions show one screen, correct tabs and zero writes", () => {
   const a = app(), before = a.store.raw;
@@ -149,7 +217,7 @@ test("pending confirmation is not optimistically shown as saved and period chang
   await ready; const a = attentionApp({ locks }); a.open(); const job = toggleAttention(a).click();
   assert.equal(toggleAttention(a).disabled, true); assert.match(a.get("graph-weight-attention-count").textContent, /1件/);
   custom(a, "2041-01-01", "2041-01-01"); release(); await held; await job;
-  assert.equal(a.graphView.getState().selected.weight, "2041-01-01");
+  assert.equal(a.graphView.getState().selectedDate, "2041-01-01");
   assert.deepEqual(acknowledgements.parse(a.store.extras.get(acknowledgements.KEY)), { "2041-01-02": { weight: true } });
   custom(a, "2041-01-02", "2041-01-02"); assert.match(a.get("graph-weight-attention-count").textContent, /0件/);
 });
@@ -232,10 +300,11 @@ for (const mode of ["json", "csv"]) test(`${mode} preview blocks graph even if i
   a.hooks.cancelRestore(); assert.equal(a.get("graph-show").disabled, false); a.open(); assert.equal(a.nav.current(), "graph");
 });
 
-test("initial three-month period and latest point selection use today's calendar", () => {
+test("initial all-period and latest common measurement selection use both fields", () => {
   const a = app(); a.open(); const state = a.graphView.getState();
-  assert.deepEqual(state.range, { start: "2032-02-16", end: "2032-05-15" });
-  assert.equal(state.mode, "3m"); assert.equal(state.selected.weight, "2032-05-10"); assert.equal(state.selected.bodyFat, "2032-05-10");
+  assert.deepEqual(state.range, { start: "2032-05-01", end: "2032-05-10" });
+  assert.equal(state.mode, "all"); assert.equal(state.selectedDate, "2032-05-10");
+  assert.match(a.get("graph-selected").textContent, /2032\/5\/10.*55\.9kg.*16\.5%/);
   assert.equal(a.get("graph-next").disabled, true); assert.equal(a.store.writes, 0);
 });
 
@@ -247,7 +316,7 @@ for (const [mode, start] of [["1m", "2032-04-16"], ["3m", "2032-02-16"], ["6m", 
 }
 
 test("month-end navigation and latest reset preserve mode without drift", () => {
-  const a = app(fixture(), { today: "2032-03-31" }); a.open();
+  const a = app(fixture(), { today: "2032-03-31" }); a.open(); a.mode("3m");
   a.get("graph-previous").click(); assert.equal(a.graphView.getState().range.end, "2032-02-29");
   a.get("graph-previous").click(); assert.equal(a.graphView.getState().range.end, "2032-01-31");
   a.get("graph-next").click(); a.get("graph-next").click(); assert.equal(a.graphView.getState().range.end, "2032-03-31");
@@ -276,15 +345,15 @@ for (const [start, end] of [["2032-05-10", "2032-05-01"], ["2031-02-29", "2032-0
   });
 }
 
-test("period/selection survive tab changes but a new mount starts at three months", () => {
-  const a = app(); a.open(); a.mode("all"); select(a, "weight", 0);
+test("manual period/selection survive tab changes but a new mount starts at all", () => {
+  const a = app(); a.open(); a.mode("1m"); select(a, "weight", 0);
   a.get("history-show").click(); a.get("input-show").click(); a.open();
-  assert.equal(a.graphView.getState().mode, "all"); assert.equal(a.graphView.getState().selected.weight, "2032-05-01");
-  const b = app(); b.open(); assert.equal(b.graphView.getState().mode, "3m");
+  assert.equal(a.graphView.getState().mode, "1m"); assert.equal(a.graphView.getState().selectedDate, "2032-05-01");
+  const b = app(); b.open(); assert.equal(b.graphView.getState().mode, "all");
 });
 
 test("midnight refresh updates latest, preserves historical/custom and recalculates all", () => {
-  const a = app(); a.open(); a.get("input-show").click(); a.now.value = "2032-05-16"; a.open(); assert.equal(a.graphView.getState().range.end, "2032-05-16");
+  const a = app(); a.open(); a.mode("3m"); a.get("input-show").click(); a.now.value = "2032-05-16"; a.open(); assert.equal(a.graphView.getState().range.end, "2032-05-16");
   a.get("graph-previous").click(); const old = JSON.stringify(a.graphView.getState().range);
   a.get("input-show").click(); a.now.value = "2032-05-17"; a.open(); assert.equal(JSON.stringify(a.graphView.getState().range), old);
   custom(a, "2032-05-01", "2032-05-02"); a.get("input-show").click(); a.now.value = "2032-05-18"; a.open(); assert.equal(a.graphView.getState().range.end, "2032-05-02");
@@ -293,11 +362,11 @@ test("midnight refresh updates latest, preserves historical/custom and recalcula
 });
 
 test("empty periods still permit period navigation while point controls are disabled", () => {
-  const a = app({}); a.open(); assert.equal(a.get("graph-previous").disabled, false); a.get("graph-previous").click();
+  const a = app({}); a.open(); a.mode("3m"); assert.equal(a.get("graph-previous").disabled, false); a.get("graph-previous").click();
   assert.equal(a.graphView.getState().offset, -1); assert.equal(a.get("graph-next").disabled, false);
   for (const field of ["weight", "bodyFat"]) {
     assert.equal(a.get(`graph-${field}-empty`).hidden, false); assert.equal(a.get(`graph-${field}-summary`).hidden, true);
-    assert.equal(a.get(`graph-${field}-previous`).disabled, true); assert.equal(a.get(`graph-${field}-next`).disabled, true);
+    assert.equal(a.get("graph-point-previous").disabled, true); assert.equal(a.get("graph-point-next").disabled, true);
   }
   a.mode("all"); assert.equal(a.graphView.getState().range, null); assert.equal(a.store.writes, 0);
 });
@@ -325,10 +394,11 @@ test("exact statistics and percentage point units are displayed", () => {
   assert.doesNotMatch(text(a.get("graph-weight-summary")), /0000000/);
 });
 
-test("tap selection updates highlight/guide/fixed text without changing the other chart", () => {
+test("tap selection updates both highlights and the single measurement row", () => {
   const a = app(); a.open(); select(a, "weight", 0);
-  assert.equal(a.graphView.getState().selected.weight, "2032-05-01"); assert.equal(a.graphView.getState().selected.bodyFat, "2032-05-10");
-  assert.match(a.get("graph-weight-selected").textContent, /2032\/5\/1.*56\.2kg/);
+  assert.equal(a.graphView.getState().selectedDate, "2032-05-01");
+  assert.match(a.get("graph-selected").textContent, /2032\/5\/1.*56\.2kg.*16\.1%/);
+  assert.equal(byClass(svg(a, "bodyFat"), "graph-selection")[0].dataset.date, "2032-05-01");
   assert.equal(byClass(svg(a), "graph-selection")[0].dataset.date, "2032-05-01");
   assert.equal(byClass(svg(a), "graph-guide")[0].attrs.x1, points(a)[0].attrs.cx); assert.equal(a.store.writes, 0);
 });
@@ -336,8 +406,8 @@ test("tap selection updates highlight/guide/fixed text without changing the othe
 test("measured SVG fallback coordinates select small points without preventing scroll", () => {
   const a = app(); a.open(); const point = points(a)[0];
   svg(a).fire("click", { clientX: Number(point.attrs.cx) + 7, clientY: Number(point.attrs.cy) + 5 });
-  assert.equal(a.graphView.getState().selected.weight, "2032-05-01");
-  svg(a).fire("click", { clientX: -500, clientY: -500 }); assert.equal(a.graphView.getState().selected.weight, "2032-05-01");
+  assert.equal(a.graphView.getState().selectedDate, "2032-05-01");
+  svg(a).fire("click", { clientX: -500, clientY: -500 }); assert.equal(a.graphView.getState().selectedDate, "2032-05-01");
 });
 
 test("nearest-point ties are deterministic and distant taps do not select", () => {
@@ -347,23 +417,23 @@ test("nearest-point ties are deterministic and distant taps do not select", () =
 });
 
 test("point controls and keyboard reach all points and stop at both boundaries", () => {
-  const a = app(); a.open(); assert.equal(a.get("graph-weight-next").disabled, true);
-  a.get("graph-weight-previous").click(); assert.equal(a.graphView.getState().selected.weight, "2032-05-02");
-  svg(a).fire("keydown", { key: "ArrowLeft" }); assert.equal(a.get("graph-weight-previous").disabled, true);
-  a.get("graph-weight-next").click(); a.get("graph-weight-next").click(); assert.equal(a.graphView.getState().selected.weight, "2032-05-10");
+  const a = app(); a.open(); assert.equal(a.get("graph-point-next").disabled, true);
+  a.get("graph-point-previous").click(); assert.equal(a.graphView.getState().selectedDate, "2032-05-02");
+  svg(a).fire("keydown", { key: "ArrowLeft" }); assert.equal(a.get("graph-point-previous").disabled, true);
+  a.get("graph-point-next").click(); a.get("graph-point-next").click(); assert.equal(a.graphView.getState().selectedDate, "2032-05-10");
 });
 
 test("period changes reset to latest points while rereads keep/update existing selections", () => {
   const a = app(); a.open(); select(a, "weight", 0); a.store.raw = JSON.stringify({ ...fixture(), "2032-05-01": day({ weight: "57.7" }) });
-  a.graphView.refresh(); assert.equal(a.graphView.getState().selected.weight, "2032-05-01"); assert.match(a.get("graph-weight-selected").textContent, /57\.7kg/);
-  a.mode("1m"); assert.equal(a.graphView.getState().selected.weight, "2032-05-10");
+  a.graphView.refresh(); assert.equal(a.graphView.getState().selectedDate, "2032-05-01"); assert.match(a.get("graph-selected").textContent, /57\.7kg/);
+  a.mode("1m"); assert.equal(a.graphView.getState().selectedDate, "2032-05-10");
   select(a, "weight", 0); a.store.raw = JSON.stringify({ "2032-05-02": day({ weight: "55" }), "2032-05-10": day({ weight: "54" }) });
-  a.graphView.refresh(); assert.equal(a.graphView.getState().selected.weight, "2032-05-10"); assert.equal(a.store.writes, 0);
+  a.graphView.refresh(); assert.equal(a.graphView.getState().selectedDate, "2032-05-10"); assert.equal(a.store.writes, 0);
 });
 
 test("storage updates and JSON/CSV-equivalent saved snapshots refresh only on safe reads", () => {
   const a = app(); a.open(); a.store.raw = JSON.stringify({ "2032-05-14": day({ weight: "55.8" }) });
-  a.emit("storage", { key: "exercise-record.entries.v1" }); assert.equal(points(a).length, 1); assert.match(a.get("graph-weight-selected").textContent, /55\.8/);
+  a.emit("storage", { key: "exercise-record.entries.v1" }); assert.equal(points(a).length, 1); assert.match(a.get("graph-selected").textContent, /55\.8/);
   a.store.raw = JSON.stringify({ "2032-05-13": day({ bodyFat: "17" }) }); a.emit("focus"); assert.equal(points(a, "bodyFat").length, 1);
   assert.equal(a.store.writes, 0);
 });
@@ -373,7 +443,7 @@ test("all-period expansion after a record update preserves a still-valid selecte
   a.store.raw = JSON.stringify({ ...fixture(), "2032-05-14": day({ weight: "55.7" }) });
   a.emit("storage", { key: "exercise-record.entries.v1" });
   assert.equal(a.graphView.getState().range.end, "2032-05-14");
-  assert.equal(a.graphView.getState().selected.weight, "2032-05-01"); assert.equal(a.store.writes, 0);
+  assert.equal(a.graphView.getState().selectedDate, "2032-05-01"); assert.equal(a.store.writes, 0);
 });
 
 test("SVG transform coordinates support scaled browser rendering", () => {
@@ -383,7 +453,7 @@ test("SVG transform coordinates support scaled browser rendering", () => {
     assert.equal(inverse, "inverse-transform"); return { x: Number(point.attrs.cx), y: Number(point.attrs.cy) };
   } });
   box.fire("click", { clientX: 800, clientY: 600 });
-  assert.equal(a.graphView.getState().selected.weight, "2032-05-01"); assert.equal(a.store.writes, 0);
+  assert.equal(a.graphView.getState().selectedDate, "2032-05-01"); assert.equal(a.store.writes, 0);
 });
 
 for (const raw of ["{broken", "[]", '{"2031-02-29":{"weight":"56"}}']) test(`corrupt storage is an error, never an empty writable dataset: ${raw}`, () => {
@@ -409,7 +479,7 @@ for (const width of [320, 375, 390, 430]) test(`SVG numeric geometry is bounded 
     }
   }
   a.viewport.width += 30; a.emit("resize"); a.flush();
-  assert.deepEqual(a.graphView.getState().range, before.range); assert.deepEqual(a.graphView.getState().selected, before.selected); assert.equal(a.store.writes, 0);
+  assert.deepEqual(a.graphView.getState().range, before.range); assert.deepEqual(a.graphView.getState().selectedDate, before.selectedDate); assert.equal(a.store.writes, 0);
 });
 
 test("missing container dimensions use safe geometry", () => {
@@ -420,7 +490,7 @@ test("missing container dimensions use safe geometry", () => {
 test("very large finite values render bounded SVG and full selected raw text", () => {
   const a = app({ "2032-05-01": day({ weight: String(Number.MAX_VALUE), bodyFat: "5e-324" }) }); a.open();
   assert.equal(a.graphView.getState().error, false);
-  assert.match(a.get("graph-weight-selected").textContent, /1\.7976931348623157e\+308kg/);
+  assert.match(a.get("graph-selected").textContent, /1\.7976931348623157e\+308kg/);
   for (const field of ["weight", "bodyFat"]) for (const item of descendants(svg(a, field))) {
     for (const value of Object.values(item.attrs)) assert.doesNotMatch(value, /NaN|Infinity/);
   }
@@ -430,9 +500,9 @@ test("dense charts keep 500 points and their latest selection", () => {
   const records = {};
   for (let index = 0; index < 500; index++) records[model.addDays("2030-01-01", index)] = day({ weight: String(55 + index % 10 / 10) });
   const a = app(records); a.open(); a.mode("all"); assert.equal(points(a).length, 500);
-  assert.equal(a.graphView.getState().selected.weight, model.addDays("2030-01-01", 499));
-  for (let index = 0; index < 499; index++) a.get("graph-weight-previous").click();
-  assert.equal(a.graphView.getState().selected.weight, "2030-01-01"); assert.equal(a.store.writes, 0);
+  assert.equal(a.graphView.getState().selectedDate, model.addDays("2030-01-01", 499));
+  for (let index = 0; index < 499; index++) a.get("graph-point-previous").click();
+  assert.equal(a.graphView.getState().selectedDate, "2030-01-01"); assert.equal(a.store.writes, 0);
 });
 
 test("targets supplied through the settings API do not persist records", () => {
@@ -557,7 +627,7 @@ test("SVG font measurements guide fitting and do not alter lines, bands, selecti
   assert.ok(measured > 0); assert.ok(byClass(svg(a), "graph-date-label").length < 5);
   assert.equal(points(a).length, 3); assert.equal(byClass(svg(a), "graph-measurement-line").length, 1);
   assert.equal(byClass(svg(a), "graph-target-band").length, 1);
-  select(a, "weight", 0); assert.equal(a.graphView.getState().selected.weight, "2032-05-01");
+  select(a, "weight", 0); assert.equal(a.graphView.getState().selectedDate, "2032-05-01");
   assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
 });
 
