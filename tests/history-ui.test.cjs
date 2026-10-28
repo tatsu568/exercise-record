@@ -429,7 +429,7 @@ test("an insecure HTTP context does not register the Service Worker", () => {
   }
 });
 
-test("v23 caches every app reference with fresh content, serves offline and replaces only older app caches", async () => {
+test("v24 caches every app reference with fresh content, serves offline and replaces only older app caches", async () => {
   const origin = "https://example.test/exercise-record/", events = {}, saved = new Map(), deleted = [];
   const httpCache = new Map([[new URL("script.js", origin).href, "old public input script"]]);
   const downloads = [];
@@ -452,8 +452,8 @@ test("v23 caches every app reference with fresh content, serves offline and repl
       saved.set(url.href, { ok: true, body });
     }
   } };
-  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v23"); return cache; },
-    keys: async () => ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23", "other-cache"], delete: async (name) => { deleted.push(name); },
+  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v24"); return cache; },
+    keys: async () => ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23", "exercise-record-v24", "other-cache"], delete: async (name) => { deleted.push(name); },
     match: async (request) => saved.get(request.url) };
   const context = { self, caches, URL, Request: WorkerRequest, fetch: async () => { networkCalls++; throw Error("offline"); } };
   Object.defineProperty(context, "localStorage", { get() { assert.fail("Service Worker must not access records"); } });
@@ -475,7 +475,7 @@ test("v23 caches every app reference with fresh content, serves offline and repl
   }
   assert.equal(networkCalls, 0);
   events.activate({ waitUntil: (promise) => { pending = promise; } }); await pending;
-  assert.deepEqual(deleted, ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22"]); assert(skipped && claimed);
+  assert.deepEqual(deleted, ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23"]); assert(skipped && claimed);
 });
 
 
@@ -494,7 +494,7 @@ for (const [name, entry, expected] of [
     instance.screen.open();
     const button = listButton(instance, "2032-10-18"), header = button.children[0];
     assert.equal(header.className, "history-list-header");
-    assert.equal(header.children[0].tag, "strong"); assert.equal(header.children[0].textContent, "2032/10/18（月）");
+    assert.equal(header.children[0].tag, "strong"); assert.equal(header.children[0].textContent, "2032/10/18(月)");
     assert.equal(header.children[1].textContent, expected);
     button.click(); assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
   });
@@ -607,12 +607,12 @@ test("monthly ASCII formatting does not alter detail warning punctuation or save
   assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
 });
 
-test("v23 matches the current HTML CSS URL and preserves the history asset identifiers", () => {
+test("v24 matches the current HTML CSS URL and preserves the history asset identifiers", () => {
   const version = "0.3-history-separators-20261021", worker = fs.readFileSync(path.join(root, "service-worker.js"), "utf8");
   for (const file of ["record-history.js", "history-view.js"]) {
     assert(html.includes(`${file}?v=${version}`)); assert(worker.includes(`./${file}?v=${version}`));
   }
   assert(html.includes("style.css?v=0.4-gear-optical-20261024-up2"));
   assert(worker.includes("./style.css?v=0.4-gear-optical-20261024-up2"));
-  assert(worker.includes('const CACHE_NAME = "exercise-record-v23"'));
+  assert(worker.includes('const CACHE_NAME = "exercise-record-v24"'));
 });

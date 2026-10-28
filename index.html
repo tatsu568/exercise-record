@@ -240,15 +240,18 @@
     <section id="summary-screen" aria-labelledby="summary-heading" hidden>
       <h2 id="summary-heading" tabindex="-1">運動集計</h2>
       <section class="card summary-controls" aria-label="集計期間">
-        <p id="summary-range" class="summary-range" aria-live="polite"></p>
+        <div class="summary-period-heading">
+          <p id="summary-range" class="summary-range" aria-live="polite"></p>
+          <p id="summary-saved-days"></p>
+        </div>
         <div class="summary-period-actions">
           <button id="summary-previous" class="date-step" type="button">前の4週間</button>
           <button id="summary-next" class="date-step" type="button">次の4週間</button>
           <button id="summary-latest" class="date-step" type="button" disabled>最新</button>
         </div>
-        <p id="summary-saved-days"></p>
         <p id="summary-comparison-range" class="summary-note"></p>
         <p id="summary-status" class="summary-note" role="status" aria-live="polite"></p>
+        <p id="summary-goal-status" class="summary-note" role="status" aria-live="polite"></p>
       </section>
       <div id="summary-cards" class="summary-cards" role="group" aria-label="運動項目を選択"></div>
       <section class="card" aria-labelledby="summary-chart-heading">
@@ -256,7 +259,7 @@
         <div id="summary-plot" class="graph-plot"></div>
       </section>
       <div class="summary-notes">
-        <p id="summary-aggregation-note" class="summary-note">保存された値だけを集計します。空欄・欠落・不正値は対象外です。スタンディングは保存済みの値の平均で、初期値10を含む場合があります。実際の活動時間を保証するものではありません。（7/28）は、28日間のうち7日分の有効データがあることを表します。</p>
+        <p id="summary-aggregation-note" class="summary-note">保存された値だけを集計します。空欄・欠落・不正値は対象外です。スタンディングは保存済みの値の平均で、初期値10を含む場合があります。実際の活動時間を保証するものではありません。(○/28)は、期間横では保存済み記録日数、運動5項目では0より大きい実績の実施日数、スタンディングでは平均対象日数を表します。目標は現在の設定を全期間に適用します。記録が不足している場合も補完せず、保存済みの実績で達成率を計算します。</p>
         <p id="summary-graph-note" class="summary-note">各週は月曜〜日曜です。データなしは棒を表示せず、保存された0は基準線と「0」で表示します。平均・平均との差は小数第2位まで表示します。</p>
       </div>
     </section>
@@ -279,6 +282,19 @@
           <button id="settings-goals-reset" class="date-step settings-reset" type="button">目標設定を初期値に戻す</button>
         </div>
         <p id="settings-goals-status" class="settings-status" role="status" aria-live="polite"></p>
+      </section>
+      <section class="card settings-group" aria-labelledby="settings-exerciseGoals-heading">
+        <h3 id="settings-exerciseGoals-heading">運動目標</h3>
+        <div id="settings-exerciseGoals-summary" class="settings-summary"></div>
+        <button id="settings-exerciseGoals-edit" class="date-step" type="button">編集</button>
+        <div id="settings-exerciseGoals-form" hidden>
+          <p class="settings-help">週間目標を入力してください。スタンディングだけ1日平均（H／日）です。空欄・0・無効な値は目標未設定として保存します。現在の目標は過去の集計期間にも適用します。</p>
+          <div id="settings-exerciseGoals-fields" class="settings-fields"></div>
+          <label id="settings-exerciseGoals-repair" class="settings-repair" hidden><input id="settings-exerciseGoals-repair-confirm" type="checkbox"><span>破損・未対応の設定を、このグループの入力値で置き換えることを確認しました。</span></label>
+          <div class="settings-actions"><button id="settings-exerciseGoals-save" class="date-step settings-save" type="button">保存</button><button id="settings-exerciseGoals-cancel" class="date-step" type="button">キャンセル</button></div>
+          <button id="settings-exerciseGoals-reset" class="date-step settings-reset" type="button">運動目標を未設定に戻す</button>
+        </div>
+        <p id="settings-exerciseGoals-status" class="settings-status" role="status" aria-live="polite"></p>
       </section>
       <section class="card settings-group" aria-labelledby="settings-attention-heading">
         <h3 id="settings-attention-heading">注意判定設定</h3>

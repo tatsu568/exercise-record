@@ -152,11 +152,12 @@ button { touch-action: manipulation; }
 #summary-screen[hidden] { display: none; }
 #summary-screen, .summary-card { min-width: 0; }
 #summary-heading { margin: 0 0 10px; font-size: 19px; }
-.summary-range { margin: 0 0 8px; font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
+.summary-period-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.summary-range { min-width: 0; margin: 0; font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
 .summary-period-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) 48px; gap: 6px; }
 .summary-period-actions button { min-width: 0; min-height: 48px; }
 .summary-period-actions button:disabled { opacity: .45; }
-#summary-saved-days { margin: 8px 0 4px; font-weight: 650; }
+#summary-saved-days { margin: 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .summary-note { margin: 6px 0 10px; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .summary-notes .summary-note { margin: 4px 0; }
 #summary-status:empty { display: none; }
@@ -170,9 +171,17 @@ button { touch-action: manipulation; }
 .summary-card-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 2px; width: 100%; min-width: 0; }
 .summary-card-label { min-width: 0; color: var(--metric-color); font-size: 12px; font-weight: 650; }
 .summary-card-value { font-size: 21px; font-variant-numeric: tabular-nums; }
-.summary-card-change { font-size: 12px; }
-.summary-card-change[data-direction="increase"] { color: var(--accent); font-weight: 700; }
-.summary-card-change[data-direction="unavailable"] { color: var(--muted); }
+.summary-card-value-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 6px; min-width: 0; }
+.summary-card-unit { margin-left: 2px; font-size: 14px; vertical-align: baseline; white-space: nowrap; }
+.summary-card-unit:empty { display: none; }
+.summary-card-difference { color: var(--muted); font-size: 11px; }
+.summary-card-difference:empty { display: none; }
+.summary-card-achievement { align-self: flex-start; max-width: 100%; border-radius: 5px; font-size: 12px; }
+.summary-card-achievement[data-achieved="true"] { padding: 2px 5px; background: #fce7f3; color: #9d174d; font-weight: 700; }
+.summary-goal-line { stroke: #9d174d; stroke-width: 1.5; stroke-dasharray: 6 4; }
+.summary-goal-label { fill: #9d174d; font-size: 11px; }
+#summary-goal-status { color: #a32626; }
+#summary-goal-status:empty { display: none; }
 .summary-card-count { flex: 0 0 6ch; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 #summary-chart-heading { margin: 0 0 8px; font-size: 16px; }
 .summary-bar { fill: var(--metric-color); }

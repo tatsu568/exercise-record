@@ -92,6 +92,27 @@ const save = (a, group = "goals") => a.get(`settings-${group}-save`).click();
 const openSettings = (a) => a.get("settings-show").click();
 const target = (a) => a.get("graph-weight-goal").textContent;
 
+test("exercise goal section edits six optional goals, cancels independently and saves without touching records or other groups", () => {
+  const a = app(), before = a.store.raw; openSettings(a); assert.match(text(a.get("settings-exerciseGoals-summary")), /スクワット：未設定/);
+  edit(a, "exerciseGoals"); edit(a); value(a, "weightMin", "54");
+  for (const [field, raw] of Object.entries({ squat: "80", march: "10", plank: "60", standing: "15", walkSteps: "10000", distance: "2.5" })) value(a, field, raw, "exerciseGoals");
+  save(a, "exerciseGoals"); assert.equal(a.get("settings-exerciseGoals-form").hidden, true);
+  assert.match(text(a.get("settings-exerciseGoals-summary")), /スタンディング：15H／日/); assert.equal(a.get("settings-goals-weightMin").value, "54");
+  assert.deepEqual(a.store.settingWrites, [settingsModel.KEYS.exerciseGoals]);
+  edit(a, "exerciseGoals"); a.get("settings-exerciseGoals-reset").click(); assert.equal(a.get("settings-exerciseGoals-squat").value, "");
+  a.get("settings-exerciseGoals-cancel").click(); assert.equal(a.settingsStore.read("exerciseGoals").values.squat, 80);
+  assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
+});
+
+test("exercise goal drafts are protected on navigation and retained after a save failure", () => {
+  const a = app(); openSettings(a); edit(a, "exerciseGoals"); value(a, "squat", "80", "exerciseGoals");
+  assert.equal(a.nav.show("history"), false); a.get("settings-continue").click();
+  a.store.settingFailWrite = true; save(a, "exerciseGoals"); assert.equal(a.get("settings-exerciseGoals-form").hidden, false);
+  assert.equal(a.get("settings-exerciseGoals-squat").value, "80"); assert.match(a.get("settings-exerciseGoals-status").textContent, /保存できません/);
+  a.store.settingFailWrite = false; save(a, "exerciseGoals"); assert.equal(a.settingsStore.read("exerciseGoals").values.squat, 80);
+  assert.equal(a.store.writes, 0);
+});
+
 test("settings uses a decorative line SVG with an accessible button name", () => {
   const button = /<button\b([^>]*\bid="settings-show"[^>]*)>([\s\S]*?)<\/button>/.exec(html);
   assert.ok(button); assert.match(button[1], /aria-label="設定を開く"/);

@@ -4,6 +4,30 @@ const model = require("../exercise-summary.js"), calendar = require("../body-gra
 const range = { start: "2041-04-15", end: "2041-05-12" };
 const day = (values = {}) => ({ ...transfer.DEFAULT_ENTRY, ...values });
 
+test("goals use four weekly totals, exact decimal differences and uncapped integer achievement rates", () => {
+  for (const field of ["squat", "march", "plank", "walkSteps", "distance"]) {
+    for (const [actual, rate, achieved, difference] of [["310", "97", false, "-10"], ["319", "99", false, "-1"], ["320", "100", true, "0"], ["400", "125", true, "80"]]) {
+      assert.deepEqual(model.goalProgress(field, { value: actual, count: 1 }, 80), { status: "ready", target: "320", rate, achieved, difference });
+    }
+  }
+  assert.equal(model.goalProgress("distance", { value: "0.3", count: 1 }, .1).difference, "-0.1");
+  assert.equal(model.goalProgress("distance", { value: "0.3", count: 1 }, .1).rate, "75");
+});
+
+test("standing goals compare the unrounded recorded-day average directly, not four times the goal", () => {
+  for (const [average, rate, achieved, difference] of [[14.5, "97", false, "-0.5"], [15, "100", true, "0"], [15.5, "103", true, "0.5"]]) {
+    assert.deepEqual(model.goalProgress("standing", { count: 2, value: String(average), average }, 15), { status: "ready", target: "15", rate, achieved, difference });
+  }
+  const near = model.goalProgress("standing", { count: 3, value: "15", average: 14.9999 }, 15);
+  assert.equal(near.achieved, false); assert.equal(near.rate, "99"); assert.notEqual(near.difference, "0");
+});
+
+test("missing goals and missing records never become a false zero or achievement", () => {
+  for (const goal of [undefined, null, 0, -1, NaN, Infinity, "80"]) assert.deepEqual(model.goalProgress("squat", { count: 1, value: "100" }, goal), { status: "unset" });
+  assert.deepEqual(model.goalProgress("squat", { count: 0, value: null }, 80), { status: "no-data", target: "320" });
+  const zero = model.goalProgress("squat", { count: 1, value: "0" }, 80); assert.equal(zero.rate, "0"); assert.equal(zero.achieved, false);
+});
+
 for (const [today, start, end] of [
   ["2026-10-27", "2026-09-28", "2026-10-25"],
   ["2041-01-01", "2040-12-03", "2040-12-30"],
@@ -34,6 +58,30 @@ test("six metrics use their own valid-day counts and include both endpoints", ()
   for (const [field, value] of Object.entries({ squat: "35", march: "3", plank: "90", standing: "15", walkSteps: "3500", distance: "3.5" })) {
     assert.equal(result.metrics[field].value, value); assert.equal(result.metrics[field].count, 2);
   }
+});
+
+test("performed days count each positive valid day once, without changing valid counts, totals, standing averages or goal judging", () => {
+  const positive = { squat: 50, march: 2, plank: 120, standing: 10, walkSteps: "123", distance: "0.25" };
+  const records = {
+    "2041-04-14": positive,
+    "2041-04-15": positive,
+    "2041-04-16": { squat: 0, march: 0, plank: 0, standing: 20, walkSteps: "0", distance: "0" },
+    "2041-04-17": { squat: "", march: "", plank: "", standing: "", walkSteps: "", distance: "" },
+    "2041-04-18": { squat: 3, march: -1, plank: 31, standing: 0, walkSteps: "1.5", distance: "-1" },
+    "2041-04-19": {},
+    "2041-04-20": { squat: 5, march: 1, plank: 30, standing: 15, walkSteps: "1", distance: "0.0001" },
+    "2041-05-12": { squat: 0, march: 0, plank: 0, standing: 20, walkSteps: "0", distance: "1e-3" }
+  };
+  const before = JSON.stringify(records), result = model.buildSummary(records, range), metrics = result.current.metrics;
+  assert.equal(result.current.savedDays, 7);
+  for (const [field, total, days] of [["squat", "55", 2], ["march", "3", 2], ["plank", "150", 2], ["walkSteps", "124", 2], ["distance", "0.2511", 3]]) {
+    assert.equal(metrics[field].performedDays, days); assert.equal(metrics[field].count, 4); assert.equal(metrics[field].value, total);
+    assert.deepEqual(model.goalProgress(field, metrics[field], 80), model.goalProgress(field, { count: 4, value: total }, 80));
+  }
+  assert.equal(metrics.standing.performedDays, null); assert.equal(metrics.standing.count, 4); assert.equal(metrics.standing.value, "16.25");
+  assert.deepEqual(model.goalProgress("standing", metrics.standing, 15), { status: "ready", target: "15", achieved: true, rate: "108", difference: "1.25" });
+  assert.deepEqual(result.weeks.map(week => week.metrics.squat.value), ["55", null, null, "0"]);
+  assert.equal(result.previous.metrics.squat.performedDays, 1); assert.equal(JSON.stringify(records), before);
 });
 
 test("absent days and absent/empty fields never receive defaults; saved zero differs from no data", () => {

@@ -11,8 +11,8 @@ test("local today uses local calendar components", () => {
 test("calendar is Monday-first with correct day placement", () => {
   const month = history.calendar(2032, 3);
   assert.equal(month.offset, 0); assert.equal(month.dates.length, 31);
-  assert.equal(history.dateLabel("2032-03-01"), "2032/3/1（月）");
-  assert.equal(history.dateLabel("2032-03-07"), "2032/3/7（日）");
+  assert.equal(history.dateLabel("2032-03-01"), "2032/3/1(月)");
+  assert.equal(history.dateLabel("2032-03-07"), "2032/3/7(日)");
 });
 test("December/January navigation preserves calendar years", () => {
   assert.deepEqual(history.moveMonth(2032, 12, 1), { year: 2033, month: 1 });
@@ -24,7 +24,7 @@ test("month and leap boundaries including century rules", () => {
 });
 test("calendar supports early and future years without Date 0-99 remapping", () => {
   assert.equal(history.calendar(1, 1).dates[0], "0001-01-01");
-  assert.equal(history.dateLabel("0001-01-01"), "1/1/1（月）");
+  assert.equal(history.dateLabel("0001-01-01"), "1/1/1(月)");
   assert.equal(history.calendar(9999, 12).dates.length, 31);
   assert.equal(history.moveMonth(1, 1, -1), null); assert.equal(history.moveMonth(9999, 12, 1), null);
 });

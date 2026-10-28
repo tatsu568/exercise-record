@@ -55,7 +55,7 @@
     if (!validDate(date)) throw new Error("実在する日付ではありません");
     const [year, month, day] = date.split("-").map(Number);
     const grid = calendar(year, month);
-    return `${year}/${month}/${day}（${WEEKDAYS[(grid.offset + day - 1) % 7]}）`;
+    return `${year}/${month}/${day}(${WEEKDAYS[(grid.offset + day - 1) % 7]})`;
   }
 
   function describe(records, date) {

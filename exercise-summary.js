@@ -75,7 +75,9 @@
     const metrics = Object.fromEntries(METRICS.map(({ field }) => {
       const count = values[field].length, total = sum(values[field]);
       const average = field === "standing" && count ? Number(total) / count : null;
-      return [field, { count, invalid: invalid[field], value: count ? average === null ? total : averageText(average) : null, average }];
+      // Keep count (including saved zero) for totals, averages and goal judging.
+      const performedDays = field === "standing" ? null : values[field].filter(value => calendar.compareDecimals(value, "0") > 0).length;
+      return [field, { count, performedDays, invalid: invalid[field], value: count ? average === null ? total : averageText(average) : null, average }];
     }));
     return { range: { ...range }, savedDays, metrics };
   }
@@ -98,5 +100,20 @@
     }));
     return { current, previous, comparisons, weeks };
   }
-  return Object.freeze({ METRICS, latestPeriod, movePeriod, aggregate, buildSummary });
+  // Goal arithmetic uses the existing totals; it never fills missing records.
+  function goalProgress(field, metric, weeklyGoal) {
+    if (typeof weeklyGoal !== "number" || !Number.isFinite(weeklyGoal) || weeklyGoal <= 0) return { status: "unset" };
+    const target = field === "standing" ? String(weeklyGoal) : sum(Array(4).fill(String(weeklyGoal)));
+    if (!metric || !metric.count || metric.value === null) return { status: "no-data", target };
+    const actual = field === "standing" ? String(metric.average) : metric.value;
+    const parts = (raw) => { const [base, exponent = "0"] = raw.toLowerCase().split("e"); return { digits: BigInt(base.replace(".", "")), power: Number(exponent) - (base.split(".")[1] || "").length }; };
+    const a = parts(actual), t = parts(target), power = Math.min(a.power, t.power);
+    const value = a.digits * 10n ** BigInt(a.power - power), goal = t.digits * 10n ** BigInt(t.power - power);
+    const achieved = value >= goal, rounded = (value * 200n + goal) / (goal * 2n);
+    const difference = sum([actual, `-${target}`]);
+    const roundedDifference = field === "standing" ? averageText(Number(difference)) : difference;
+    return { status: "ready", target, achieved, rate: String(!achieved && rounded >= 100n ? 99n : rounded),
+      difference: roundedDifference === "0" && difference !== "0" ? String(Number(Number(difference).toPrecision(2))) : roundedDifference };
+  }
+  return Object.freeze({ METRICS, latestPeriod, movePeriod, aggregate, buildSummary, goalProgress });
 });

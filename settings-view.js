@@ -8,7 +8,7 @@
   "use strict";
   function mount({ document, window, navigation, store }) {
     const get = (id) => document.querySelector(`#${id}`);
-    const groups = ["goals", "attention"], state = {};
+    const groups = ["goals", "exerciseGoals", "attention"], state = {};
     let previous = "input", pending = null, bypass = false;
     const node = (tag, text, className) => {
       const element = document.createElement(tag);
@@ -16,7 +16,8 @@
       if (className) element.className = className;
       return element;
     };
-    const unit = (name) => name === "compareDays" ? "日" : name.startsWith("weight") ? "kg" : name === "bodyFatChange" ? "ポイント" : "%";
+    const exerciseUnits = { squat: "回／週", march: "回／週", plank: "秒／週", standing: "H／日", walkSteps: "歩／週", distance: "km／週" };
+    const unit = (name) => exerciseUnits[name] || (name === "compareDays" ? "日" : name.startsWith("weight") ? "kg" : name === "bodyFatChange" ? "ポイント" : "%");
     const id = (group, name) => `settings-${group}-${name}`;
     function currentDraft(group) { return Object.fromEntries(model.fields(group).map((name) => [name, get(id(group, name)).value])); }
     function dirty() { return groups.some((group) => state[group]?.editing && model.changed(group, currentDraft(group), state[group].saved)); }
@@ -32,6 +33,10 @@
     }
     function renderSummary(group) {
       const values = state[group].saved, target = get(`settings-${group}-summary`); target.replaceChildren();
+      if (group === "exerciseGoals") {
+        for (const name of model.fields(group)) target.append(node("p", `${model.LABELS[name]}：${values[name] === null ? "未設定" : values[name] + unit(name)}`));
+        return;
+      }
       for (const [label, value] of [[group === "goals" ? "体重" : "体重の固定範囲", `${values.weightMin.toFixed(1)}〜${values.weightMax.toFixed(1)}kg`],
         [group === "goals" ? "体脂肪率" : "体脂肪率の固定範囲", `${values.bodyFatMin.toFixed(1)}〜${values.bodyFatMax.toFixed(1)}%`]]) {
         target.append(node("p", `${label}：${value}`));

@@ -3,22 +3,28 @@
   const commonJS = typeof module === "object" && module.exports;
   const api = factory(commonJS ? require("./exercise-summary.js") : root.ExerciseSummary,
     commonJS ? require("./body-graph.js") : root.BodyGraph,
-    commonJS ? require("./record-history.js") : root.RecordHistory);
+    commonJS ? require("./record-history.js") : root.RecordHistory,
+    commonJS ? require("./app-settings.js") : root.AppSettings);
   if (commonJS) module.exports = api;
   else {
     root.ExerciseSummaryView = api;
     root.RecordSummaryView = api.mount({ document, window, navigation: root.RecordAppNavigation,
-      storage: { getItem(key) { return localStorage.getItem(key); } } });
+      storage: { getItem(key) { return localStorage.getItem(key); } }, settings: root.RecordSettings });
   }
-})(typeof globalThis !== "undefined" ? globalThis : this, function (model, calendar, history) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (model, calendar, history, settingsModel) {
   "use strict";
   const KEY = "exercise-record.entries.v1", SVG_NS = "http://www.w3.org/2000/svg";
-  const dateText = (date) => date.replace(/-/g, "/");
-  const rangeText = (range) => `${dateText(range.start)}（月）〜${dateText(range.end)}（日）`;
+  const dateText = (date, includeYear = true) => {
+    const { year, month, day } = calendar.parseDate(date);
+    return `${includeYear ? year + "/" : ""}${month}/${day}`;
+  };
+  const rangeText = (range) => `${dateText(range.start)}(月)〜${dateText(range.end, range.start.slice(0, 4) !== range.end.slice(0, 4))}(日)`;
+  const displayNumber = (field, value) => field === "walkSteps" ? value.replace(/(\d)(?=(\d{3})+$)/g, "$1,") : value;
+  const unitText = (metric) => metric.field === "standing" ? "H" : metric.unit;
 
-  function mount({ document, window, storage, navigation, today = () => calendar.localDateString(new Date()) }) {
+  function mount({ document, window, storage, navigation, settings = settingsModel.createStore(storage), today = () => calendar.localDateString(new Date()) }) {
     const get = (id) => document.querySelector(`#${id}`);
-    const state = { open: false, range: null, latest: null, field: "squat", data: null, error: "" };
+    const state = { open: false, range: null, latest: null, field: "squat", data: null, error: "", goals: {}, goalError: "" };
     const cards = {};
     const node = (tag, text, className) => {
       const item = document.createElement(tag);
@@ -37,8 +43,9 @@
 
     function renderPlot() {
       const plot = get("summary-plot"), metric = model.METRICS.find(({ field }) => field === state.field);
+      const goal = state.goals[state.field], unit = unitText(metric);
       plot.dataset.field = state.field;
-      get("summary-chart-heading").textContent = `${metric.label}・週ごとの${metric.field === "standing" ? "平均" : "合計"}（${metric.unit}）`;
+      get("summary-chart-heading").textContent = `${metric.label}・週ごとの${metric.field === "standing" ? "平均" : "合計"}（${unit}）`;
       plot.replaceChildren();
       if (!state.data) { plot.append(node("p", "保存データを確認できないため、表示できません")); return; }
       const rows = state.data.weeks.map((week) => ({ ...week, result: week.metrics[state.field] }));
@@ -46,12 +53,13 @@
       if (values.some((value) => !Number.isFinite(value))) { plot.append(node("p", "値が大きすぎるため、棒グラフを表示できません。集計値はカードで確認できます。")); return; }
       const measured = plot.getBoundingClientRect?.().width;
       const width = Math.max(240, measured || (document.documentElement?.clientWidth || 375) - 58);
-      const left = 42, top = 18, height = 154, baseline = top + height, lane = (width - left - 8) / 4;
+      const left = 42, top = goal ? 36 : 18, height = goal ? 136 : 154, baseline = top + height, lane = (width - left - 8) / 4;
       // The shared body-graph axis accepts positive bounds; its padding clamps
       // this smallest positive lower bound to zero for a zero-based bar chart.
-      const peak = Math.max(0, ...values), axis = calendar.calculateYAxis([], { min: Number.MIN_VALUE, max: peak || 1 }, { minSpan: peak || 1, tickCount: 4 });
-      const accessible = rows.map((week, index) => `第${index + 1}週 ${rangeText(week)}：${week.result.value === null ? "データなし" : week.result.value + metric.unit}`).join("。 ");
-      const svg = svgNode("svg", { viewBox: `0 0 ${width} 214`, width, height: 214, role: "img", "aria-label": `${metric.label}。${accessible}` });
+      const peak = Math.max(0, ...values, goal || 0), axis = calendar.calculateYAxis([], { min: Number.MIN_VALUE, max: peak || 1 }, { minSpan: peak || 1, tickCount: 4 });
+      const accessible = rows.map((week, index) => `第${index + 1}週 ${rangeText(week)}：${week.result.value === null ? "データなし" : week.result.value + unit}`).join("。 ");
+      const goalLabel = goal ? `目標 ${displayNumber(state.field, String(goal))}${unit}${state.field === "standing" ? "／日" : "／週"}` : "";
+      const svg = svgNode("svg", { viewBox: `0 0 ${width} 214`, width, height: 214, role: "img", "aria-label": `${metric.label}。${accessible}${goalLabel ? "。" + goalLabel : ""}` });
       for (const tick of axis.ticks) {
         const y = top + calendar.calculateY(tick.value, axis, height);
         svg.append(svgNode("line", { x1: left, x2: width - 8, y1: y, y2: y, class: "graph-grid-line" }),
@@ -60,7 +68,7 @@
       rows.forEach((week, index) => {
         const x = left + lane * (index + .5), result = week.result;
         const group = svgNode("g", { class: "summary-week", "data-week": index + 1, "data-value": result.value ?? "" });
-        group.append(svgNode("title", {}, `第${index + 1}週 ${rangeText(week)}：${result.value === null ? "データなし" : result.value + metric.unit}（有効${result.count}日）`));
+        group.append(svgNode("title", {}, `第${index + 1}週 ${rangeText(week)}：${result.value === null ? "データなし" : result.value + unit}（有効${result.count}日）`));
         if (result.value !== null) {
           const y = top + calendar.calculateY(Number(result.value), axis, height);
           // A saved zero is a baseline marker, never a fabricated positive bar.
@@ -74,34 +82,46 @@
         group.append(svgNode("text", { x, y: baseline + 36, "text-anchor": "middle", class: "summary-week-dates" }, `${short(week.start)}〜${end}`));
         svg.append(group);
       });
+      if (goal) {
+        const y = top + calendar.calculateY(goal, axis, height);
+        svg.append(svgNode("line", { x1: left, x2: width - 8, y1: y, y2: y, class: "summary-goal-line", "data-goal": goal }),
+          svgNode("text", { x: left, y: 16, class: "summary-goal-label" }, goalLabel));
+      }
       plot.append(svg);
     }
 
     function render() {
       if (state.range) get("summary-range").textContent = rangeText(state.range);
-      get("summary-saved-days").textContent = state.data ? `記録日数：${state.data.current.savedDays} / 28日` : "記録日数：確認できません";
+      get("summary-saved-days").textContent = state.data ? `(${state.data.current.savedDays}/28)` : "(—/28)";
+      get("summary-saved-days").setAttribute("aria-label", state.data ? `28日間のうち保存済み記録${state.data.current.savedDays}日` : "記録日数を確認できません");
       get("summary-comparison-range").textContent = state.data ? `比較：${rangeText(state.data.previous.range)}` : "";
       const excluded = state.data ? Object.values(state.data.current.metrics).reduce((count, metric) => count + metric.invalid, 0) : 0;
       const previousExcluded = state.data ? Object.values(state.data.previous.metrics).reduce((count, metric) => count + metric.invalid, 0) : 0;
       get("summary-status").textContent = state.error || (excluded || previousExcluded ? `不正な値は集計から除外しています（今回${excluded}項目・前4週${previousExcluded}項目）。保存値は変更していません。` : "");
       get("summary-status").dataset.error = String(Boolean(state.error));
+      get("summary-goal-status").textContent = state.goalError;
       get("summary-previous").disabled = !state.range || !state.latest || !model.movePeriod(state.range, -1, state.latest);
       get("summary-next").disabled = !state.range || !state.latest || !model.movePeriod(state.range, 1, state.latest);
       get("summary-latest").disabled = !state.range || !state.latest || state.range.end === state.latest.end;
-      for (const { field, unit } of model.METRICS) {
-        const card = cards[field], metric = state.data?.current.metrics[field], comparison = state.data?.comparisons[field];
+      for (const item of model.METRICS) {
+        const { field } = item, unit = unitText(item), card = cards[field], metric = state.data?.current.metrics[field];
+        const progress = model.goalProgress(field, metric, state.goals[field]);
         card.button.setAttribute("aria-pressed", String(field === state.field));
-        card.value.textContent = !metric ? "表示できません" : metric.value === null ? "データなし" : metric.value + unit;
-        card.count.textContent = metric ? `(${metric.count}/28)` : "(—/28)";
-        card.count.setAttribute("aria-label", metric ? `28日間のうち${metric.count}日分の有効データ` : "有効日数を確認できません");
-        card.change.dataset.direction = comparison?.direction || "unavailable";
-        card.change.textContent = !comparison || comparison.change === null ? "前4週と比較不可" : comparison.direction === "same" ? "前4週より 変化なし"
-          : `前4週より ${comparison.direction === "increase" ? "+" : "−"}${comparison.change.replace(/^-/, "")}${unit}`;
+        card.number.textContent = !metric ? "表示できません" : metric.value === null ? "データなし" : displayNumber(field, metric.value);
+        card.unit.textContent = metric && metric.value !== null ? unit : "";
+        const days = field === "standing" ? metric?.count : metric?.performedDays, dayLabel = field === "standing" ? "平均対象日数" : "実施日数";
+        card.count.textContent = metric ? `(${days}/28)` : "(—/28)";
+        card.count.setAttribute("aria-label", metric ? `28日間のうち${dayLabel}${days}日` : `${dayLabel}を確認できません`);
+        const difference = progress.difference;
+        card.difference.textContent = progress.status === "ready" ? `目標${difference === "0" ? "±0" : difference.startsWith("-") ? "−" + displayNumber(field, difference.slice(1)) : "+" + displayNumber(field, difference)}${unit}` : "";
+        card.change.dataset.achieved = String(progress.status === "ready" && progress.achieved);
+        card.change.textContent = progress.status === "unset" ? "目標未設定" : progress.status === "no-data" ? "達成率 判定不可" : `達成率 ${progress.rate}%`;
       }
       renderPlot();
     }
     function refresh() {
       if (!state.open) return;
+      const loaded = settings.read("exerciseGoals"); state.goals = loaded.values; state.goalError = loaded.error;
       try {
         const latest = model.latestPeriod(today());
         if (!state.range || state.range.end === state.latest?.end || state.range.end > latest.end) state.range = latest;
@@ -113,10 +133,12 @@
     for (const metric of model.METRICS) {
       const button = node("button", undefined, "summary-card"), label = node("span", metric.label, "summary-card-label");
       button.type = "button"; button.dataset.field = metric.field; button.setAttribute("aria-controls", "summary-plot");
-      const value = node("strong", "", "summary-card-value"), change = node("span", "", "summary-card-change"), count = node("span", "", "summary-card-count");
+      const value = node("strong", "", "summary-card-value"), change = node("span", "", "summary-card-achievement"), count = node("span", "", "summary-card-count");
+      const number = node("span", "", "summary-card-number"), unit = node("span", "", "summary-card-unit"); value.append(number, unit);
+      const row = node("span", undefined, "summary-card-value-row"), difference = node("span", "", "summary-card-difference"); row.append(value, difference);
       const heading = node("span", undefined, "summary-card-heading"); heading.append(label, count);
-      button.append(heading, value, change); get("summary-cards").append(button);
-      cards[metric.field] = { button, value, change, count };
+      button.append(heading, row, change); get("summary-cards").append(button);
+      cards[metric.field] = { button, number, unit, difference, change, count };
       button.addEventListener("click", () => { state.field = metric.field; render(); });
     }
     for (const [id, direction] of [["summary-previous", -1], ["summary-next", 1]]) get(id).addEventListener("click", () => {
@@ -129,7 +151,7 @@
       state.range = null; refresh();
     });
     navigation.register("summary", { heading: "summary-heading", onShow() { state.open = true; refresh(); }, onHide() { state.open = false; } });
-    window.addEventListener("storage", (event) => { if (event.key === KEY || event.key === null) refresh(); });
+    window.addEventListener("storage", (event) => { if (event.key === KEY || event.key === settingsModel.KEYS.exerciseGoals || event.key === null) refresh(); });
     for (const name of ["focus", "pageshow"]) window.addEventListener(name, refresh);
     window.addEventListener("resize", () => { if (state.open) renderPlot(); });
     return Object.freeze({ open: () => navigation.show("summary"), refresh,

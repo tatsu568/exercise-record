@@ -794,7 +794,7 @@
     const labels = dates.filter((_, index) => index === 0 || index === 6).map((dateKey) => {
       const [year, month, day] = dateKey.split("-").map(Number);
       const weekday = weekdays[new Date(year, month - 1, day, 12).getDay()];
-      return `${formatWeeklyDate(dateKey, includeYear)}（${weekday}）`;
+      return `${formatWeeklyDate(dateKey, includeYear)}(${weekday})`;
     });
     document.querySelector("#weekly-period").textContent = `対象期間：${labels[0]}〜${labels[1]}`;
   }

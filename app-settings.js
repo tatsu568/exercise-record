@@ -7,13 +7,15 @@
   "use strict";
   // Each key holds { schemaVersion: 1, values: { ...numeric fields below } }.
   // These settings are intentionally outside the records/backup schema.
-  const KEYS = Object.freeze({ goals: "exercise-record.goals.v1", attention: "exercise-record.attention-settings.v1" });
+  const KEYS = Object.freeze({ goals: "exercise-record.goals.v1", attention: "exercise-record.attention-settings.v1", exerciseGoals: "exercise-record.exercise-goals.v1" });
   const DEFAULTS = Object.freeze({
     goals: Object.freeze({ weightMin: 56, weightMax: 56.9, bodyFatMin: 16, bodyFatMax: 16.9 }),
-    attention: Object.freeze({ weightMin: 45, weightMax: 70, bodyFatMin: 10, bodyFatMax: 30, compareDays: 10, weightChange: 3, bodyFatChange: 3 })
+    attention: Object.freeze({ weightMin: 45, weightMax: 70, bodyFatMin: 10, bodyFatMax: 30, compareDays: 10, weightChange: 3, bodyFatChange: 3 }),
+    exerciseGoals: Object.freeze({ squat: null, march: null, plank: null, standing: null, walkSteps: null, distance: null })
   });
   const LABELS = Object.freeze({ weightMin: "体重の下限", weightMax: "体重の上限", bodyFatMin: "体脂肪率の下限", bodyFatMax: "体脂肪率の上限",
-    compareDays: "急変比較期間", weightChange: "体重の急変幅", bodyFatChange: "体脂肪率の急変幅" });
+    compareDays: "急変比較期間", weightChange: "体重の急変幅", bodyFatChange: "体脂肪率の急変幅",
+    squat: "スクワット", march: "足踏み", plank: "プランク", standing: "スタンディング", walkSteps: "散歩歩数", distance: "散歩距離" });
   const plain = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
   function fields(group) {
     if (!Object.hasOwn(DEFAULTS, group)) throw new Error("未対応の設定グループです");
@@ -25,6 +27,12 @@
     for (const name of Object.keys(source)) if (!names.includes(name)) errors.form = `未知の設定項目があります：${name}`;
     for (const name of names) {
       const raw = source[name], text = typeof raw === "string" ? raw.trim() : String(raw);
+      if (group === "exerciseGoals") {
+        if (stored && raw !== null && typeof raw !== "number") { errors[name] = `${LABELS[name]}の保存型が不正です`; continue; }
+        const value = Number(text);
+        values[name] = (stored || typeof raw === "string") && /^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(text) && Number.isFinite(value) && value > 0 ? value : null;
+        continue;
+      }
       if (stored && typeof raw !== "number") { errors[name] = `${LABELS[name]}の保存型が不正です`; continue; }
       if (!stored && typeof raw !== "string") { errors[name] = `${LABELS[name]}を入力してください`; continue; }
       if (!text) { errors[name] = `${LABELS[name]}は必須です`; continue; }
@@ -58,7 +66,7 @@
     return checked.values;
   }
   function draft(group, values = DEFAULTS[group]) {
-    return Object.fromEntries(fields(group).map((name) => [name, name === "compareDays" ? String(values[name]) : values[name].toFixed(1)]));
+    return Object.fromEntries(fields(group).map((name) => [name, group === "exerciseGoals" ? values[name] === null ? "" : String(values[name]) : name === "compareDays" ? String(values[name]) : values[name].toFixed(1)]));
   }
   function changed(group, input, saved) {
     const checked = validate(group, input);

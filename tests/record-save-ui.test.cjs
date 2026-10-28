@@ -282,6 +282,7 @@ test("failed apply preserves original record target, typed values and the unappl
 
 test("weekly copies and period labels use the active record date rather than an unapplied date", async () => {
   const a = instance({ [DATE]: day({ weight: "55" }) }), label = a.get("#weekly-period").textContent;
+  assert.match(label, /\([月火水木金土日]\)/); assert.doesNotMatch(label, /（[月火水木金土日]）/);
   for (const id of ["#copy-weekly", "#copy-weekly-body"]) {
     a.get("#date-reset").click(); await a.get(id).click(); const before = a.clipboard.at(-1);
     selectCandidate(a, "2041-08-12"); await a.get(id).click(); const after = a.clipboard.at(-1);

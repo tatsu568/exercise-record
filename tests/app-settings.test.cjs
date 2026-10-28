@@ -11,6 +11,28 @@ function memory(initial = {}) {
 const source = (group, values = {}) => ({ ...model.draft(group), ...values });
 const encoded = (group, changes = {}) => JSON.stringify({ schemaVersion: 1, values: { ...model.DEFAULTS[group], ...changes } });
 
+test("exercise goals start unset, normalize nonpositive/invalid values and persist only in their independent key", () => {
+  const storage = memory({ "exercise-record.entries.v1": "record bytes" }), store = model.createStore(storage);
+  assert(Object.values(store.read("exerciseGoals").values).every(v => v === null)); assert.equal(storage.writes.length, 0);
+  for (const raw of ["", " ", "0", "-1", "abc", "Infinity", "0x10"]) assert.equal(model.validate("exerciseGoals", source("exerciseGoals", { squat: raw })).values.squat, null);
+  const input = source("exerciseGoals", { squat: "80", march: "10", plank: "60", standing: "15.5", walkSteps: "10000", distance: "1.25" });
+  assert.equal(store.save("exerciseGoals", input).ok, true);
+  assert.deepEqual(model.createStore(storage).read("exerciseGoals").values, { squat: 80, march: 10, plank: 60, standing: 15.5, walkSteps: 10000, distance: 1.25 });
+  assert.deepEqual(storage.writes, [model.KEYS.exerciseGoals]); assert.equal(storage.values.get("exercise-record.entries.v1"), "record bytes");
+  assert.equal(store.save("exerciseGoals", source("exerciseGoals")).ok, true); assert(Object.values(store.read("exerciseGoals").values).every(v => v === null));
+});
+
+test("exercise goal corruption, failed writes and failed readback keep confirmed settings and protect stored bytes", () => {
+  const raw = "{broken", storage = memory({ [model.KEYS.exerciseGoals]: raw }), store = model.createStore(storage);
+  assert.equal(store.read("exerciseGoals").needsRepair, true); assert.equal(store.save("exerciseGoals", source("exerciseGoals", { squat: "80" })).ok, false);
+  assert.equal(storage.values.get(model.KEYS.exerciseGoals), raw); assert.equal(storage.writes.length, 0);
+  assert.equal(store.save("exerciseGoals", source("exerciseGoals", { squat: "80" }), { repair: true }).ok, true);
+  storage.failWrite = true; assert.equal(store.save("exerciseGoals", source("exerciseGoals", { squat: "90" })).ok, false); assert.equal(store.read("exerciseGoals").values.squat, 80);
+  storage.failWrite = false; storage.afterWrite = () => { storage.failRead = true; };
+  assert.equal(store.save("exerciseGoals", source("exerciseGoals", { squat: "90" })).ok, false); storage.failRead = false;
+  assert.equal(store.read("exerciseGoals").values.squat, 80); assert.equal(store.read("exerciseGoals").uncertain, true);
+});
+
 test("missing settings use independent immutable defaults without writes", () => {
   const storage = memory(), store = model.createStore(storage);
   assert.deepEqual(store.read("goals").values, { weightMin: 56, weightMax: 56.9, bodyFatMin: 16, bodyFatMax: 16.9 });
