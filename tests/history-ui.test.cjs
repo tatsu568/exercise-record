@@ -55,18 +55,203 @@ function app(records = {}, today = "2032-10-19", browserBoot = false, secureCont
     for (const file of modules.filter((name) => ["record-history.js", "history-view.js"].includes(name))) vm.runInContext(fs.readFileSync(path.join(root, file), "utf8"), context);
     screen = { open: () => get("#history-show").click(), close: () => get("#input-show").click() };
   } else screen = view.mount({ document, window, storage: store, input: window.RecordHistoryInput, today: () => today });
-  return { get: (id) => get("#" + id), store, screen, hooks: context.hooks, shared, clipboard, steps, work, window, scrollCalls, registrations,
+  return { get: (id) => get("#" + id), store, screen, hooks: context.hooks, shared, clipboard, steps, work, window, scrollCalls, registrations, locks: navigator.locks,
     flushFrame() { frames.splice(0).forEach((fn) => fn()); },
     flushFrames() { for (let turn = 0; frames.length && turn < 10; turn++) frames.splice(0).forEach((fn) => fn()); assert.equal(frames.length, 0); },
     emit(name, event) { (listeners[name] || []).forEach((fn) => fn(event)); } };
 }
 function dates(instance) { return instance.get("history-calendar").children.filter((child) => child.tag === "button"); }
 function select(instance, date) { const button = dates(instance).find((item) => item.dataset.date === date); assert.ok(button, date); button.click(); }
+function jump(instance, year, month) {
+  instance.get("history-year").value = String(year); instance.get("history-month-select").value = String(month);
+  instance.get("history-month-go").click();
+}
 function text(node) { return [node.textContent, ...node.children.map(text)].join("\n"); }
 async function ready(instance) {
   await instance.get("restore-prebackup").click(); instance.get("restore-backup-confirm").checked = true; instance.get("restore-final-confirm").checked = true;
   instance.get("restore-final-confirm").events.change();
 }
+
+test("this-month returns from a distant year using the supplied local date and keeps all navigation read-only", () => {
+  for (const today of ["2032-10-19", "2041-01-01"]) {
+    const instance = app({ [today]: day(), "2039-10-27": day() }, today), before = instance.store.raw;
+    const [year, month] = today.split("-").map(Number), inputDate = instance.get("record-date").value;
+    instance.screen.open(); jump(instance, 2039, 10); select(instance, "2039-10-27"); instance.get("history-delete").click();
+    instance.get("history-month-current").click();
+    assert.equal(instance.get("history-month").textContent, `${year}年${month}月`);
+    assert.equal(instance.get("history-year").value, String(year)); assert.equal(instance.get("history-month-select").value, String(month));
+    assert.equal(instance.get("history-detail").hidden, true); assert.equal(instance.get("history-delete-confirm").hidden, true);
+    assert.deepEqual(instance.get("history-list").children.map(item => item.children[0].dataset.date), [today]);
+    instance.get("history-month-prev").click(); instance.get("history-month-next").click();
+    assert.equal(instance.get("history-month").textContent, `${year}年${month}月`);
+    jump(instance, 2039, 10); assert.equal(instance.get("history-month").textContent, "2039年10月");
+    assert.equal(instance.get("record-date").value, inputDate); assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
+  }
+});
+
+test("this-month preserves rendered nodes and selected details when already current, and resets only unfinished month input", () => {
+  const instance = app({ "2032-10-18": day() }); instance.screen.open(); select(instance, "2032-10-18");
+  const calendar = instance.get("history-calendar").children, list = instance.get("history-list").children;
+  let reads = 0; const read = instance.store.getItem; instance.store.getItem = function (key) { reads++; return read.call(this, key); };
+  instance.get("history-month-current").click();
+  assert.equal(instance.get("history-calendar").children, calendar); assert.equal(instance.get("history-list").children, list);
+  assert.equal(instance.get("history-detail").hidden, false);
+  jump(instance, "", 11); assert.match(instance.get("history-jump-status").textContent, /1〜9999/);
+  instance.get("history-month-current").click();
+  assert.equal(instance.get("history-year").value, "2032"); assert.equal(instance.get("history-month-select").value, "10");
+  assert.equal(instance.get("history-jump-status").textContent, "");
+  assert.equal(instance.get("history-calendar").children, calendar); assert.equal(instance.get("history-list").children, list);
+  assert.equal(reads, 0); assert.equal(instance.store.writes, 0);
+});
+
+test("month controls keep adjacent buttons, a shared explicit height and grouped wrapping for narrow screens", () => {
+  const css = fs.readFileSync(path.join(root, "style.css"), "utf8");
+  assert.match(html, /class="history-jump-actions">\s*<button id="history-month-go"[^>]*>移動<\/button>\s*<button id="history-month-current"[^>]*>今月<\/button>/);
+  assert.match(css, /\.history-jump input, \.history-jump select, \.history-jump button\s*\{[^}]*height: 44px; min-height: 44px/);
+  assert.match(css, /@media \(max-width: 350px\)[\s\S]*?\.history-jump-actions\s*\{[^}]*grid-column: 1 \/ -1/);
+});
+
+test("direct month jumps show matching calendars and lists for past and future years without saving or changing the input date", () => {
+  const data = Object.fromEntries([2022, 2023, 2024, 2039].map(year => [`${year}-10-27`, day({ squat: 5 })]));
+  const instance = app(data), before = instance.store.raw, inputDate = instance.get("record-date").value;
+  instance.screen.open();
+  assert.equal(instance.get("history-year").value, "2032"); assert.equal(instance.get("history-month-select").value, "10");
+  for (const year of [2022, 2023, 2024, 2039]) {
+    jump(instance, year, 10); assert.equal(instance.get("history-month").textContent, `${year}年10月`);
+    assert.equal(dates(instance).length, 31);
+    assert(dates(instance).every(item => item.dataset.date.startsWith(`${year}-10-`)));
+    assert.deepEqual(instance.get("history-list").children.map(item => item.children[0].dataset.date), [`${year}-10-27`]);
+    select(instance, `${year}-10-27`); assert.equal(instance.get("history-delete").hidden, false);
+    assert.match(instance.get("history-detail-heading").textContent, new RegExp(`${year}/10/27`));
+  }
+  instance.get("history-month-prev").click(); assert.equal(instance.get("history-month-select").value, "9");
+  assert.match(text(instance.get("history-list")), /この月の保存記録はありません/);
+  instance.get("history-year").value = "2000";
+  instance.get("history-month-next").click(); assert.equal(instance.get("history-year").value, "2039");
+  assert.equal(instance.get("history-month-select").value, "10");
+  assert.equal(instance.get("record-date").value, inputDate); assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
+});
+
+test("invalid month jumps preserve the current display and records; calendar boundaries remain usable", () => {
+  const instance = app({}), before = instance.store.raw; instance.screen.open();
+  for (const [year, month] of [["", 10], [" ", 10], [0, 10], [-1, 10], [10000, 10], ["2032.5", 10], ["2e3", 10], ["invalid", 10], [2032, 0], [2032, 13], [2032, "1.5"]]) {
+    jump(instance, year, month); assert.equal(instance.get("history-month").textContent, "2032年10月");
+    assert.match(instance.get("history-jump-status").textContent, /1〜9999/); assert.equal(dates(instance).length, 31);
+  }
+  jump(instance, 1, 1); assert.equal(instance.get("history-month").textContent, "1年1月");
+  assert.equal(instance.get("history-month-prev").disabled, true); assert.equal(dates(instance)[0].dataset.date, "0001-01-01");
+  jump(instance, 9999, 12); assert.equal(instance.get("history-month-next").disabled, true);
+  assert.equal(dates(instance).at(-1).dataset.date, "9999-12-31"); assert.equal(instance.get("history-jump-status").textContent, "");
+  assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
+});
+
+test("jumped-to detail retains cancellation and one-day deletion; changing months discards an old confirmation", async () => {
+  const data = { "2022-10-27": day(), "2039-10-27": day({ squat: 10 }) }, instance = app(data), before = instance.store.raw;
+  instance.screen.open(); jump(instance, 2022, 10); select(instance, "2022-10-27"); instance.get("history-delete").click();
+  jump(instance, 2039, 10); assert.equal(instance.get("history-delete-confirm").hidden, true);
+  await instance.get("history-delete-apply").click(); assert.equal(instance.store.raw, before);
+  select(instance, "2039-10-27"); instance.get("history-delete").click();
+  assert.match(instance.get("history-delete-heading").textContent, /2039\/10\/27/);
+  instance.get("history-delete-cancel").click(); assert.equal(instance.store.raw, before);
+  instance.get("history-delete").click(); await instance.get("history-delete-apply").click();
+  assert.deepEqual(JSON.parse(instance.store.raw), { "2022-10-27": data["2022-10-27"] }); assert.equal(instance.store.writes, 1);
+  jump(instance, 2022, 10); select(instance, "2022-10-27"); instance.get("history-edit").click();
+  assert.equal(instance.get("record-date").value, "2022-10-27"); assert.equal(instance.store.writes, 1);
+});
+
+test("history deletion confirms the displayed date, cancels without writes and deletes only the chosen saved day", async () => {
+  const instance = app({ "2032-10-18": day(), "2032-10-19": day({ squat: 15 }) }), before = instance.store.raw;
+  instance.screen.open(); select(instance, "2032-10-18");
+  assert.equal(instance.get("history-delete").hidden, false); assert.equal(instance.get("history-delete-confirm").hidden, true);
+  instance.get("history-delete").click();
+  assert.match(instance.get("history-delete-heading").textContent, /2032\/10\/18/);
+  assert.equal(instance.get("history-delete-confirm").hidden, false); assert.equal(instance.store.writes, 0);
+  instance.get("history-delete-cancel").click(); await instance.get("history-delete-apply").click();
+  assert.equal(instance.get("history-delete-confirm").hidden, true); assert.equal(instance.store.raw, before);
+  instance.get("history-delete").click(); await instance.get("history-delete-apply").click();
+  assert.deepEqual(JSON.parse(instance.store.raw), { "2032-10-19": day({ squat: 15 }) });
+  assert.equal(instance.store.writes, 1); assert.match(instance.get("history-status").textContent, /2032\/10\/18.*削除しました/);
+  assert.equal(instance.get("history-detail").hidden, true); assert.match(text(instance.get("history-count")), /保存1日/);
+  assert.deepEqual(instance.get("history-list").children.map(item => item.children[0].dataset.date), ["2032-10-19"]);
+});
+
+test("closing or changing a detail cancels confirmation; missing and invalid records cannot be deleted", async () => {
+  const instance = app({ "2032-10-18": day(), "2032-10-19": { weight: "56" } }), before = instance.store.raw;
+  instance.screen.open(); select(instance, "2032-10-18"); instance.get("history-delete").click();
+  instance.get("history-detail-close").click(); await instance.get("history-delete-apply").click();
+  assert.equal(instance.store.raw, before);
+  select(instance, "2032-10-18"); instance.get("history-delete").click(); select(instance, "2032-10-19");
+  assert.equal(instance.get("history-delete").hidden, true); assert.equal(instance.get("history-delete-confirm").hidden, true);
+  await instance.get("history-delete-apply").click(); select(instance, "2032-10-20");
+  assert.equal(instance.get("history-delete").hidden, true); instance.get("history-delete").click();
+  assert.equal(instance.get("history-delete-confirm").hidden, true); assert.equal(instance.store.writes, 0);
+  select(instance, "2032-10-18"); instance.get("history-delete").click(); instance.screen.close();
+  await instance.get("history-delete-apply").click(); assert.equal(instance.store.raw, before);
+});
+
+test("a deleted active input day is reloaded as unsaved defaults and does not resurrect on navigation or blur", async () => {
+  const instance = app({ "2032-10-19": day({ weight: "56", squat: 15 }) });
+  instance.screen.open(); select(instance, "2032-10-19"); instance.get("history-delete").click();
+  await instance.get("history-delete-apply").click(); instance.screen.close();
+  assert.equal(instance.get("weight").value, ""); assert.equal(instance.get("squat-value").value, "0回");
+  instance.get("weight").events.blur?.();
+  instance.get("record-date").value = "2032-10-20"; await instance.get("date-apply").click();
+  instance.screen.open(); instance.screen.close();
+  assert.equal(instance.store.raw, "{}"); assert.equal(instance.store.writes, 1);
+});
+
+test("deletion rejects stale details and storage failures without a false success or double write", async () => {
+  const instance = app({ "2032-10-18": day() }); instance.screen.open(); select(instance, "2032-10-18");
+  instance.get("history-delete").click();
+  instance.store.raw = JSON.stringify({ "2032-10-18": day({ squat: 5 }) });
+  await instance.get("history-delete-apply").click(); assert.match(instance.get("history-status").textContent, /変わりました/);
+  assert.equal(instance.store.writes, 0);
+  instance.get("history-delete").click(); instance.store.fail = true;
+  await instance.get("history-delete-apply").click(); assert.match(instance.get("history-status").textContent, /削除を完了できません/);
+  assert.doesNotMatch(instance.get("history-status").textContent, /削除しました/);
+  instance.store.fail = false; instance.get("history-delete").click();
+  const first = instance.get("history-delete-apply").click(), second = instance.get("history-delete-apply").click();
+  assert.equal(instance.get("history-detail-close").disabled, true);
+  await Promise.all([first, second]);
+  assert.equal(instance.store.raw, "{}"); assert.equal(instance.store.writes, 2); // One failed write, one verified deletion.
+});
+
+test("future saved dates allow deletion after detail review, and insecure browsing cannot delete", async () => {
+  const instance = app({ "2049-10-27": day() }, "2049-10-26"); instance.screen.open(); select(instance, "2049-10-27");
+  instance.get("history-delete").click(); assert.match(instance.get("history-delete-heading").textContent, /2049\/10\/27/);
+  await instance.get("history-delete-apply").click(); assert.equal(instance.store.raw, "{}");
+  const insecure = app({ "2032-10-18": day() }, "2032-10-19", false, false); insecure.screen.open(); select(insecure, "2032-10-18");
+  assert.equal(insecure.get("history-delete").disabled, true); insecure.get("history-delete").click();
+  assert.equal(insecure.get("history-delete-confirm").hidden, true); assert.equal(insecure.store.writes, 0);
+});
+
+test("queued deletion blocks navigation and pagehide cancels it without a delayed write", async () => {
+  const instance = app({ "2032-10-18": day() }), before = instance.store.raw;
+  let release, acquired;
+  const ready = new Promise(resolve => { acquired = resolve; });
+  const held = instance.locks.request(RecordSave.LOCK_NAME, { mode: "exclusive" }, async () => { acquired(); await new Promise(resolve => { release = resolve; }); });
+  await ready;
+  instance.screen.open(); select(instance, "2032-10-18"); instance.get("history-delete").click();
+  const deleting = instance.get("history-delete-apply").click(); instance.screen.close();
+  assert.equal(instance.get("history-screen").hidden, false); assert.equal(instance.get("history-month-prev").disabled, true);
+  for (const id of ["history-year", "history-month-select", "history-month-go", "history-month-current"]) assert.equal(instance.get(id).disabled, true);
+  jump(instance, 2039, 10); assert.equal(instance.get("history-month").textContent, "2032年10月");
+  instance.get("history-month-current").click(); assert.equal(instance.get("history-month").textContent, "2032年10月");
+  instance.emit("pagehide"); await deleting; release(); await held;
+  assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
+  assert.doesNotMatch(instance.get("history-status").textContent, /削除しました/);
+});
+
+test("uncertain deletion readback shows a warning rather than success and never retries automatically", async () => {
+  const instance = app({ "2032-10-18": day(), "2032-10-19": day() }), get = instance.store.getItem;
+  instance.screen.open(); select(instance, "2032-10-18"); instance.get("history-delete").click();
+  instance.store.getItem = function (key) { if (this.writes) throw Error("readback failed"); return get.call(this, key); };
+  await instance.get("history-delete-apply").click();
+  assert.match(instance.get("history-status").textContent, /変更済みの可能性/);
+  assert.doesNotMatch(instance.get("history-status").textContent, /削除しました/);
+  await instance.get("history-delete-apply").click(); assert.equal(instance.store.writes, 1);
+  assert.deepEqual(Object.keys(JSON.parse(instance.store.raw)), ["2032-10-19"]);
+});
 
 test("history opens in today's month; input, calendar and details never write", () => {
   const instance = app({ "2032-10-18": day({ squat: 15 }) }), before = instance.store.raw;
@@ -429,7 +614,7 @@ test("an insecure HTTP context does not register the Service Worker", () => {
   }
 });
 
-test("v34 caches every app reference with fresh content, serves offline and replaces only older app caches", async () => {
+test("v35 caches every app reference with fresh content, serves offline and replaces only older app caches", async () => {
   const origin = "https://example.test/exercise-record/", events = {}, saved = new Map(), deleted = [];
   const httpCache = new Map([[new URL("script.js", origin).href, "old public input script"]]);
   const downloads = [];
@@ -452,8 +637,8 @@ test("v34 caches every app reference with fresh content, serves offline and repl
       saved.set(url.href, { ok: true, body });
     }
   } };
-  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v34"); return cache; },
-    keys: async () => ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23", "exercise-record-v24", "exercise-record-v25", "exercise-record-v26", "exercise-record-v27", "exercise-record-v28", "exercise-record-v29", "exercise-record-v30", "exercise-record-v31", "exercise-record-v32", "exercise-record-v33", "exercise-record-v34", "other-cache"], delete: async (name) => { deleted.push(name); },
+  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v35"); return cache; },
+    keys: async () => ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23", "exercise-record-v24", "exercise-record-v25", "exercise-record-v26", "exercise-record-v27", "exercise-record-v28", "exercise-record-v29", "exercise-record-v30", "exercise-record-v31", "exercise-record-v32", "exercise-record-v33", "exercise-record-v34", "exercise-record-v35", "other-cache"], delete: async (name) => { deleted.push(name); },
     match: async (request) => saved.get(request.url) };
   const context = { self, caches, URL, Request: WorkerRequest, fetch: async () => { networkCalls++; throw Error("offline"); } };
   Object.defineProperty(context, "localStorage", { get() { assert.fail("Service Worker must not access records"); } });
@@ -475,7 +660,7 @@ test("v34 caches every app reference with fresh content, serves offline and repl
   }
   assert.equal(networkCalls, 0);
   events.activate({ waitUntil: (promise) => { pending = promise; } }); await pending;
-  assert.deepEqual(deleted, ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23", "exercise-record-v24", "exercise-record-v25", "exercise-record-v26", "exercise-record-v27", "exercise-record-v28", "exercise-record-v29", "exercise-record-v30", "exercise-record-v31", "exercise-record-v32", "exercise-record-v33"]); assert(skipped && claimed);
+  assert.deepEqual(deleted, ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23", "exercise-record-v24", "exercise-record-v25", "exercise-record-v26", "exercise-record-v27", "exercise-record-v28", "exercise-record-v29", "exercise-record-v30", "exercise-record-v31", "exercise-record-v32", "exercise-record-v33", "exercise-record-v34"]); assert(skipped && claimed);
 });
 
 
@@ -607,12 +792,12 @@ test("monthly ASCII formatting does not alter detail warning punctuation or save
   assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
 });
 
-test("v34 matches the current HTML CSS URL and preserves the history asset identifiers", () => {
+test("v35 matches the current HTML CSS URL and preserves the history asset identifiers", () => {
   const version = "0.3-history-separators-20261021", worker = fs.readFileSync(path.join(root, "service-worker.js"), "utf8");
   for (const file of ["record-history.js", "history-view.js"]) {
     assert(html.includes(`${file}?v=${version}`)); assert(worker.includes(`./${file}?v=${version}`));
   }
   assert(html.includes("style.css?v=0.4-gear-optical-20261024-up2"));
   assert(worker.includes("./style.css?v=0.4-gear-optical-20261024-up2"));
-  assert(worker.includes('const CACHE_NAME = "exercise-record-v34"'));
+  assert(worker.includes('const CACHE_NAME = "exercise-record-v35"'));
 });

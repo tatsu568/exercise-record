@@ -24,6 +24,78 @@ async function hold(locks) {
   await ready; return async () => { release(); await job; };
 }
 
+test("confirmed day deletion preserves every other date including unknown fields and verifies the saved map", async () => {
+  const target = "2049-10-27", other = day({ weight: "56.200", future: { keep: [1, "0"] } });
+  const f = fixture({ [target]: day(), [OTHER]: other }), raw = f.storage.raw;
+  const result = await f.store.deleteDay({ date: target, expectedRaw: raw, confirmed: true });
+  assert.equal(result.outcome, "verified"); assert.equal(result.date, target);
+  assert.deepEqual(result.records, { [OTHER]: other }); assert.deepEqual(JSON.parse(f.storage.raw), result.records);
+  assert.equal(f.storage.writes.length, 1); assert.ok(f.storage.reads.length >= 3);
+  assert.deepEqual(f.locks.state(), { held: 0, pending: 0 });
+});
+
+test("deletion requires confirmation and a saved complete valid target, without initializing or repairing data", async () => {
+  const f = fixture({ [DATE]: day() }), raw = f.storage.raw;
+  await assert.rejects(f.store.deleteDay({ date: DATE, expectedRaw: raw }), { code: "CONFIRMATION" });
+  await assert.rejects(f.store.deleteDay({ date: OTHER, expectedRaw: raw, confirmed: true }), { code: "NOT_FOUND" });
+  await assert.rejects(f.store.deleteDay({ date: "2041-02-30", expectedRaw: raw, confirmed: true }), { code: "INVALID_ENTRY" });
+  assert.equal(f.storage.raw, raw); assert.equal(f.storage.writes.length, 0);
+  for (const entry of [{ weight: "56" }, day({ distance: "bad" })]) {
+    const invalid = fixture({ [DATE]: entry }), before = invalid.storage.raw;
+    await assert.rejects(invalid.store.deleteDay({ date: DATE, expectedRaw: before, confirmed: true }), { code: "INVALID_ENTRY" });
+    assert.equal(invalid.storage.raw, before); assert.equal(invalid.storage.writes.length, 0);
+  }
+});
+
+test("deleting the only saved day leaves an empty records map and never removes the storage key", async () => {
+  const f = fixture({ [DATE]: day() });
+  await f.store.deleteDay({ date: DATE, expectedRaw: f.storage.raw, confirmed: true });
+  assert.equal(f.storage.raw, "{}"); assert.equal(f.storage.writes.length, 1);
+});
+
+test("deletion waits on the shared lock and stops if any confirmed snapshot changed", async () => {
+  const f = fixture({ [DATE]: day() }), raw = f.storage.raw, release = await hold(f.locks);
+  const deletion = f.store.deleteDay({ date: DATE, expectedRaw: raw, confirmed: true });
+  const external = JSON.stringify({ [DATE]: day(), [OTHER]: day() }); f.storage.raw = external;
+  const rejected = assert.rejects(deletion, { code: "STALE" }); await release(); await rejected;
+  assert.equal(f.storage.raw, external); assert.equal(f.storage.writes.length, 0);
+});
+
+test("duplicate deletions and stale queued input cannot restore a deleted record", async () => {
+  const entry = day(), f = fixture({ [DATE]: entry }), raw = f.storage.raw;
+  const second = api.createStore({ storage: f.storage, transfer, locks: f.locks, isSecureContext: true });
+  const results = await Promise.allSettled([
+    f.store.deleteDay({ date: DATE, expectedRaw: raw, confirmed: true }),
+    second.deleteDay({ date: DATE, expectedRaw: raw, confirmed: true }),
+    save(second, DATE, day({ squat: 5 }), entry)
+  ]);
+  assert.equal(results[0].status, "fulfilled");
+  for (const result of results.slice(1)) assert.equal(result.reason.code, "STALE");
+  assert.equal(f.storage.raw, "{}"); assert.equal(f.storage.writes.length, 1);
+});
+
+test("a canceled queued deletion never writes after the lock becomes available", async () => {
+  const f = fixture({ [DATE]: day() }), raw = f.storage.raw, release = await hold(f.locks), controller = new AbortController();
+  const pending = f.store.deleteDay({ date: DATE, expectedRaw: raw, confirmed: true }, { signal: controller.signal });
+  const rejected = assert.rejects(pending, { code: "ABORTED" }); controller.abort(); await rejected; await release();
+  assert.equal(f.storage.raw, raw); assert.equal(f.storage.writes.length, 0);
+});
+
+test("deletion write failures and uncertain verification never report verified success or retry", async () => {
+  for (const mode of ["write", "readback", "mismatch"]) {
+    const f = fixture({ [DATE]: day(), [OTHER]: day() }), raw = f.storage.raw, write = f.storage.setItem;
+    f.storage.setItem = function (...args) {
+      if (mode === "write") throw Error("quota");
+      write.apply(this, args);
+      if (mode === "mismatch") this.raw = raw;
+    };
+    if (mode === "readback") f.storage.getItem = function () { if (this.writes.length) throw Error("denied"); return this.raw; };
+    await assert.rejects(f.store.deleteDay({ date: DATE, expectedRaw: raw, confirmed: true }), { code: mode === "write" ? "WRITE_FAILED" : "VERIFY_FAILED" });
+    assert.equal(f.storage.writes.length, mode === "write" ? 0 : 1);
+    assert.deepEqual(JSON.parse(f.storage.raw)[OTHER], day());
+  }
+});
+
 test("single save is verified, retains types/blank/zero/unknown data and never adds metadata", async () => {
   const entry = day({ weight: "0", bodyFat: "", walkSeconds: "0", kids: false, future: { keep: true } });
   const f = fixture(null); const result = await save(f.store, DATE, entry);

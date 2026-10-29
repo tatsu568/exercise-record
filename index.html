@@ -164,6 +164,19 @@
           <h3 id="history-month" tabindex="-1" aria-live="polite"></h3>
           <button id="history-month-next" class="date-step" type="button" aria-label="次の月">翌月</button>
         </div>
+        <div class="history-jump" role="group" aria-label="履歴の年月指定">
+          <label for="history-year">年<input id="history-year" type="number" min="1" max="9999" step="1" inputmode="numeric" autocomplete="off"></label>
+          <label for="history-month-select">月<select id="history-month-select">
+            <option value="1">1月</option><option value="2">2月</option><option value="3">3月</option><option value="4">4月</option>
+            <option value="5">5月</option><option value="6">6月</option><option value="7">7月</option><option value="8">8月</option>
+            <option value="9">9月</option><option value="10">10月</option><option value="11">11月</option><option value="12">12月</option>
+          </select></label>
+          <div class="history-jump-actions">
+            <button id="history-month-go" class="date-step" type="button">移動</button>
+            <button id="history-month-current" class="date-step" type="button">今月</button>
+          </div>
+        </div>
+        <p id="history-jump-status" class="history-help" role="status" aria-live="polite"></p>
         <div class="history-weekdays" aria-hidden="true"><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span><span>日</span></div>
         <div id="history-calendar" class="history-calendar" role="group" aria-label="月曜始まりのカレンダー"></div>
         <p class="history-help">● 保存済み　△ 初期値のみの可能性　! 要確認<br>日付の枠線：今日 ／ 塗りつぶし：選択日</p>
@@ -178,6 +191,17 @@
         <p id="history-detail-state" class="history-kind"></p>
         <div id="history-detail-values" class="history-values"></div>
         <button id="history-edit" class="button backup-button" type="button">この日を入力画面で開く</button>
+        <div class="history-delete-area">
+          <button id="history-delete" class="button history-delete-button" type="button" hidden>この日の記録を削除</button>
+          <section id="history-delete-confirm" class="history-delete-confirm" aria-labelledby="history-delete-heading" hidden>
+            <h4 id="history-delete-heading" tabindex="-1"></h4>
+            <p class="history-help">この日付の保存済み記録1件を削除します。取り消しはできません。削除前にJSONバックアップを保存してください。</p>
+            <div class="history-delete-actions">
+              <button id="history-delete-cancel" class="date-step" type="button">キャンセル</button>
+              <button id="history-delete-apply" class="date-step history-delete-button" type="button">削除する</button>
+            </div>
+          </section>
+        </div>
       </section>
     </section>
     <section id="graph-screen" aria-labelledby="graph-heading" hidden>

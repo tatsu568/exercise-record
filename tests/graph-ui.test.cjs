@@ -92,6 +92,30 @@ function app(records = fixture(), options = {}) {
     flush() { for (let loop = 0; frames.length && loop < 10; loop++) frames.splice(0).forEach((fn) => fn()); assert.equal(frames.length, 0); } };
 }
 const points = (a, field = "weight") => byClass(a.get(`graph-${field}-plot`), "graph-point");
+
+test("verified history deletion updates graphs and summary on next display while preserving goals and acknowledgements", async () => {
+  const extras = {
+    [appSettings.KEYS.exerciseGoals]: JSON.stringify({ schemaVersion: 1, values: { ...appSettings.DEFAULTS.exerciseGoals, squat: 5 } }),
+    [appSettings.KEYS.goals]: JSON.stringify({ schemaVersion: 1, values: { ...appSettings.DEFAULTS.goals } }),
+    [appSettings.KEYS.attention]: JSON.stringify({ schemaVersion: 1, values: { ...appSettings.DEFAULTS.attention } }),
+    [acknowledgements.KEY]: JSON.stringify({ schemaVersion: 1, confirmed: { "2041-04-15": { weight: true } } })
+  };
+  const a = app({ "2041-04-15": day({ squat: 5, weight: "56", bodyFat: "16" }), "2041-05-05": day({ squat: 10, weight: "57" }) },
+    { today: "2041-05-13", browserBoot: true, extras });
+  const before = JSON.stringify([...a.store.extras]);
+  a.get("summary-show").click(); assert.match(text(a.get("summary-cards")), /15/);
+  a.get("summary-achievement-all").click(); assert.match(text(a.get("summary-achievement-cards")), /2\/4週/);
+  a.open(); assert.equal(points(a).length, 2);
+  a.get("history-show").click(); a.get("history-month-prev").click();
+  a.get("history-calendar").children.find(item => item.dataset.date === "2041-04-15").click();
+  a.get("history-delete").click(); await a.get("history-delete-apply").click();
+  assert.deepEqual(Object.keys(JSON.parse(a.store.raw)), ["2041-05-05"]);
+  a.get("summary-show").click(); assert.match(text(a.get("summary-cards")), /スクワット合計.*10 回/);
+  assert.match(text(a.get("summary-achievement-cards")), /0\/1週/);
+  a.open(); assert.equal(points(a).length, 1); assert.equal(points(a, "bodyFat").length, 0);
+  assert.equal(a.graphView.getState().selectedDate, "2041-05-05");
+  assert.equal(JSON.stringify([...a.store.extras]), before); assert.equal(a.store.writes, 1); assert.equal(a.store.ackWrites, 0);
+});
 const attentionFixture = () => ({ "2041-01-01": day({ weight: "60", bodyFat: "16" }), "2041-01-02": day({ weight: "80", bodyFat: "35" }) });
 const attentionApp = (options = {}) => app(attentionFixture(), { today: "2041-01-03", ...options });
 const toggleAttention = (a, field = "weight") => a.get(`graph-${field}-attention`).children.find(item => item.tag === "button");

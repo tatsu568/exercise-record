@@ -1159,6 +1159,16 @@
       return "";
     },
     notify(message) { showToast(message, 5000); },
+    canDeleteSavedDate() {
+      return historyBrowsing && !this.canBrowse() && !storageLoadError && recordStore.supported();
+    },
+    async deleteSavedDate(date, expectedRaw, options) {
+      if (!this.canDeleteSavedDate()) throw new Error("現在は安全に記録を削除できません。保存状態とHTTPS接続を確認してください");
+      const result = await recordStore.deleteDay({ date, expectedRaw, confirmed: true }, options);
+      // Reload the hidden form from the verified map, never from its old draft.
+      entries = result.records; loadDate(activeDate);
+      return result;
+    },
     setBrowsing(open) {
       const wasBrowsing = historyBrowsing;
       historyBrowsing = open;

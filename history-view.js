@@ -47,22 +47,25 @@
       }
       group.append(flow); return group;
     }
-    const state = { open: false, records: {}, raw: null, year: 0, month: 0, selected: null, error: false };
+    const state = { open: false, records: {}, raw: null, year: 0, month: 0, selected: null, error: false, deletion: null, deleting: false };
+    let deleteController = null;
     let inputScrollSequence = 0;
     function status(text, error = false) {
       get("history-status").textContent = text;
       get("history-status").dataset.error = String(error);
     }
     function close() {
+      if (state.deleting) { input.notify("削除処理中です。結果を確認してから画面を切り替えてください"); return; }
       if (navigation) return navigation.show("input");
       ++inputScrollSequence;
-      state.open = false; input.setBrowsing(false);
+      state.open = false; state.deletion = null; get("history-delete-confirm").hidden = true; input.setBrowsing(false);
       get("history-screen").hidden = true; get("input-screen").hidden = false;
       get("history-show").setAttribute("aria-pressed", "false"); get("input-show").setAttribute("aria-pressed", "true");
       get("history-show").focus({ preventScroll: true });
     }
     function selectDate(date) {
-      state.selected = date;
+      if (state.deleting) return;
+      state.selected = date; state.deletion = null;
       render();
       get("history-detail-heading").focus({ preventScroll: true });
       get("history-detail").scrollIntoView({ block: "start", behavior: "auto" });
@@ -70,6 +73,7 @@
     function renderDetail() {
       const detail = get("history-detail");
       detail.hidden = !state.selected || state.error;
+      get("history-delete-confirm").hidden = detail.hidden || !state.deletion;
       if (detail.hidden) return;
       const record = model.describe(state.records, state.selected);
       get("history-detail-heading").textContent = model.dateLabel(state.selected);
@@ -87,17 +91,28 @@
         if (!record.canEdit) values.append(node("p", "項目の欠落・不正値があるため入力画面への移動を停止しています。保存値は補完・修復していません。", "history-help"));
       }
       get("history-edit").hidden = !record.saved || !record.canEdit;
+      get("history-edit").disabled = state.deleting;
+      get("history-detail-close").disabled = state.deleting;
+      get("history-delete").hidden = !record.saved || !record.canEdit;
+      get("history-delete").disabled = state.deleting || !input.canDeleteSavedDate?.();
+      get("history-delete-apply").disabled = state.deleting;
+      get("history-delete-cancel").disabled = state.deleting;
     }
     function render() {
       get("history-month").textContent = `${state.year}年${state.month}月`;
-      get("history-month-prev").disabled = !model.moveMonth(state.year, state.month, -1);
-      get("history-month-next").disabled = !model.moveMonth(state.year, state.month, 1);
+      get("history-year").value = String(state.year);
+      get("history-month-select").value = String(state.month);
+      for (const id of ["history-year", "history-month-select", "history-month-go", "history-month-current"]) get(id).disabled = state.deleting;
+      get("history-jump-status").textContent = "";
+      get("history-month-prev").disabled = state.deleting || !model.moveMonth(state.year, state.month, -1);
+      get("history-month-next").disabled = state.deleting || !model.moveMonth(state.year, state.month, 1);
       const grid = get("history-calendar"); grid.replaceChildren();
       const list = get("history-list"); list.replaceChildren();
       get("history-count").replaceChildren();
       if (state.error) {
         get("history-count").textContent = "保存内容を読み取れないため、記録の有無を判定できません。";
         get("history-detail").hidden = true;
+        get("history-delete-confirm").hidden = true;
         return;
       }
       const month = model.monthRecords(state.records, state.year, state.month);
@@ -110,6 +125,7 @@
         const kind = byDate.get(date)?.kind || "missing";
         const button = node("button", undefined, `history-day history-day-${kind}`); button.type = "button";
         button.dataset.date = date;
+        button.disabled = state.deleting;
         button.append(node("span", String(Number(date.slice(-2)))), node("small", MARK[kind] || "\u00a0"));
         button.setAttribute("aria-label", `${model.dateLabel(date)}、${KIND[kind]}${date === today() ? "、今日" : ""}`);
         button.setAttribute("aria-pressed", String(date === state.selected));
@@ -127,6 +143,7 @@
       for (const row of month.rows) {
         const item = node("li");
         const button = node("button", undefined, "history-list-button"); button.type = "button"; button.dataset.date = row.date;
+        button.disabled = state.deleting;
         button.setAttribute("aria-pressed", String(row.date === state.selected));
         const header = node("span", undefined, "history-list-header");
         header.append(node("strong", model.dateLabel(row.date)), node("span", `${MARK[row.kind]} ${row.kind === "review" ? "要確認" : KIND[row.kind]}`, "history-kind"));
@@ -140,14 +157,15 @@
       renderDetail();
     }
     function refresh() {
-      if (!state.open) return;
+      if (!state.open || state.deleting) return;
       try {
         const raw = storage.getItem(KEY);
         const records = model.read(raw);
+        if (raw !== state.raw) state.deletion = null;
         state.records = records; state.raw = raw; state.error = false;
-        status("閲覧専用です。記録内容は変更しません。");
+        status("閲覧だけでは記録を変更しません。削除は詳細の確認操作後に実行します。");
       } catch (error) {
-        state.records = {}; state.raw = null; state.error = true;
+        state.records = {}; state.raw = null; state.error = true; state.deletion = null;
         status(`履歴を読み込めません：${error.message}。保存内容は変更していません。`, true);
       }
       render();
@@ -171,24 +189,50 @@
       activate(); get("history-heading").focus({ preventScroll: true });
     }
     if (navigation) navigation.register("history", { heading: "history-heading", onShow: activate,
-      onHide() { ++inputScrollSequence; state.open = false; } });
+      canLeave() { return state.deleting ? "削除処理中です。結果を確認してから画面を切り替えてください" : ""; },
+      onHide() { ++inputScrollSequence; state.open = false; state.deletion = null; get("history-delete-confirm").hidden = true; } });
     else {
       get("history-show").addEventListener("click", open);
       get("input-show").addEventListener("click", () => { if (state.open) close(); });
     }
     get("history-detail-close").addEventListener("click", () => {
-      state.selected = null; render(); get("history-month").focus({ preventScroll: true });
+      if (state.deleting) return;
+      state.selected = null; state.deletion = null; render(); get("history-month").focus({ preventScroll: true });
       get("history-month").scrollIntoView({ block: "start", behavior: "auto" });
     });
     for (const [id, delta] of [["history-month-prev", -1], ["history-month-next", 1]]) {
       get(id).addEventListener("click", () => {
+        if (state.deleting) return;
         const next = model.moveMonth(state.year, state.month, delta);
         if (!next) return;
-        Object.assign(state, next); state.selected = null; refresh();
+        Object.assign(state, next); state.selected = null; state.deletion = null; refresh();
       });
     }
+    get("history-month-go").addEventListener("click", () => {
+      if (!state.open || state.deleting) return;
+      const yearText = get("history-year").value.trim(), monthText = get("history-month-select").value;
+      const year = Number(yearText), month = Number(monthText);
+      try {
+        if (!/^\d{1,4}$/.test(yearText) || !/^(?:[1-9]|1[0-2])$/.test(monthText)) throw new Error("invalid month input");
+        model.calendar(year, month);
+      } catch {
+        get("history-jump-status").textContent = "年は1〜9999、月は1〜12で指定してください。"; return;
+      }
+      Object.assign(state, { year, month }); state.selected = null; state.deletion = null; refresh();
+    });
+    get("history-month-current").addEventListener("click", () => {
+      if (!state.open || state.deleting) return;
+      const [year, month] = today().split("-").map(Number);
+      if (state.year === year && state.month === month) {
+        if (get("history-year").value !== String(year)) get("history-year").value = String(year);
+        if (get("history-month-select").value !== String(month)) get("history-month-select").value = String(month);
+        if (get("history-jump-status").textContent) get("history-jump-status").textContent = "";
+        return;
+      }
+      Object.assign(state, { year, month }); state.selected = null; state.deletion = null; refresh();
+    });
     get("history-edit").addEventListener("click", () => {
-      if (!state.selected || state.error) return;
+      if (!state.selected || state.error || state.deleting) return;
       const record = model.describe(state.records, state.selected);
       if (!record.saved || !record.canEdit) return;
       const error = input.openSavedDate(state.selected, state.raw);
@@ -204,6 +248,39 @@
         window.requestAnimationFrame(() => window.requestAnimationFrame(scrollToInputTop));
       } else setTimeout(scrollToInputTop, 0);
     });
+    get("history-delete").addEventListener("click", () => {
+      if (!state.open || state.error || state.deleting || !state.selected || !input.canDeleteSavedDate?.()) return;
+      const record = model.describe(state.records, state.selected);
+      if (!record.saved || !record.canEdit) return;
+      try {
+        if (storage.getItem(KEY) !== state.raw) { refresh(); status("保存内容が変わりました。最新の詳細を確認してから削除をやり直してください。", true); return; }
+      } catch { status("保存内容を読み取れないため削除を停止しました。", true); return; }
+      state.deletion = { date: state.selected, raw: state.raw };
+      get("history-delete-heading").textContent = `${state.selected.replace(/-/g, "/")} の記録を削除しますか？`;
+      renderDetail(); get("history-delete-heading").focus({ preventScroll: true });
+      get("history-delete-confirm").scrollIntoView({ block: "nearest", behavior: "auto" });
+    });
+    get("history-delete-cancel").addEventListener("click", () => {
+      if (state.deleting) return;
+      state.deletion = null; renderDetail(); get("history-delete").focus({ preventScroll: true });
+    });
+    get("history-delete-apply").addEventListener("click", async () => {
+      const pending = state.deletion;
+      if (!state.open || state.deleting || !pending || pending.date !== state.selected || state.error) return;
+      state.deleting = true; deleteController = new AbortController(); render();
+      status("記録を削除中です。結果を確認するまで画面を閉じないでください。");
+      try {
+        await input.deleteSavedDate(pending.date, pending.raw, { signal: deleteController.signal });
+        state.deleting = false; state.deletion = null; state.selected = null; refresh();
+        status(`${pending.date.replace(/-/g, "/")} の記録を削除しました。`);
+        get("history-month").focus({ preventScroll: true });
+      } catch (error) {
+        state.deleting = false; state.deletion = null; refresh();
+        status(error.outcome === "unknown" ? "削除結果を確認できません。変更済みの可能性があります。自動で再実行せず、保存済み記録を確認してください。"
+          : `削除を完了できませんでした：${error.message}`, true);
+      } finally { deleteController = null; }
+    });
+    window.addEventListener("pagehide", () => { deleteController?.abort(); state.deletion = null; });
     window.addEventListener("storage", (event) => { if (event.key === KEY || event.key === null) refresh(); });
     window.addEventListener("focus", refresh);
     window.addEventListener("pageshow", refresh);

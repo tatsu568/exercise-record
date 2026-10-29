@@ -114,7 +114,27 @@
         return { ...persist(snapshot, candidate.records, true), counts: candidate.counts };
       }, options);
     }
-    return Object.freeze({ key, storage, supported, saveDay, commitImport, cancelPending });
+    async function deleteDay({ date, expectedRaw, confirmed }, options) {
+      if (confirmed !== true) throw failure("CONFIRMATION", "対象日付の削除確認が必要です", "confirmation");
+      try {
+        transfer.validateRecordsMap({ [date]: {} });
+        if (typeof expectedRaw !== "string") throw new Error("missing snapshot");
+      } catch (cause) { throw failure("INVALID_ENTRY", "削除対象の日付・保存内容を確認できません", "validate", "not-written", cause); }
+      return locked(() => {
+        const snapshot = read(false);
+        if (snapshot.raw !== expectedRaw) throw failure("STALE", "確認中に保存内容が変わりました。最新の詳細を確認してから、削除をやり直してください", "compare");
+        if (!own(snapshot.records, date)) throw failure("NOT_FOUND", "この日付には保存済み記録がありません", "compare");
+        const entry = snapshot.records[date];
+        try {
+          transfer.validateRecordsMap({ [date]: entry }, { strictValues: true });
+          if (!Object.keys(transfer.DEFAULT_ENTRY).every(field => own(entry, field))) throw new Error("incomplete record");
+        } catch (cause) { throw failure("INVALID_ENTRY", "欠落・不正値のある記録は削除できません。保存内容を確認してください", "validate", "not-written", cause); }
+        const records = clone(snapshot.records);
+        delete records[date];
+        return { ...persist(snapshot, records, false), date };
+      }, options);
+    }
+    return Object.freeze({ key, storage, supported, saveDay, commitImport, deleteDay, cancelPending });
   }
   return Object.freeze({ KEY, LOCK_NAME, createStore });
 });
