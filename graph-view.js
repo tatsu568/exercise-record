@@ -241,11 +241,13 @@
       const visible = model.filterMeasurements(state.measurements[field], state.range);
       const averages = state.showMovingAverage ? model.movingAverageSegments(state.measurements[field], state.range) : [];
       const extraValues = averages.flatMap((segment) => segment.map((point) => point.value));
-      const axis = model.calculateYAxis(visible, targets[field], { extraValues });
+      // Existing total span: 1.2 times; 25% margins make it 1.5 times (25% wider).
+      const axisOptions = { extraValues, padding: .25 };
+      const axis = model.calculateYAxis(visible, targets[field], axisOptions);
       const left = Math.max(38, Math.min(90, Math.max(...axis.ticks.map((tick) => axisText(tick.value).length)) * 6 + 10));
       const plotWidth = Math.max(1, width - left - right);
       const data = model.buildChartData(visible, state.range, targets[field], { field, width: plotWidth, height,
-        minLabelSpacing: 1, extraValues });
+        minLabelSpacing: 1, ...axisOptions });
       const unit = field === "weight" ? "kg" : "%";
       get(`graph-${field}-goal`).textContent = `目標：${targets[field].min.toFixed(1)}〜${targets[field].max.toFixed(1)}${unit}`;
       container.replaceChildren();

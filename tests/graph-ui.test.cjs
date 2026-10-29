@@ -133,6 +133,36 @@ test("moving average defaults on for both graphs and toggles without changing pe
   assert.equal(a.store.raw, before); assert.equal(JSON.stringify([...a.store.extras]), extras); assert.equal(a.store.writes, 0); assert.equal(a.store.ackWrites, 0);
 });
 
+test("body axes widen 25 percent around their original centers and map actual and average values without changing summaries", () => {
+  const cases = [
+    { data: fixture() },
+    { data: { "2041-01-01": day({ weight: "56.2", bodyFat: "16.2" }) } },
+    { data: { "2041-01-01": day({ weight: "45", bodyFat: "15" }), "2041-01-02": day({ weight: "100", bodyFat: "35" }) } },
+    { data: { "2041-01-01": day({ weight: "140", bodyFat: "40" }), "2041-01-27": day({ weight: "60", bodyFat: "17" }),
+      "2041-01-28": day({ weight: "50", bodyFat: "16" }) }, bounds: ["2041-01-27", "2041-01-28"] }
+  ];
+  const targets = { weight: { min: 56, max: 56.9 }, bodyFat: { min: 16, max: 16.9 } };
+  for (const { data, bounds } of cases) {
+    const a = app(data), before = a.store.raw; a.open(); if (bounds) custom(a, ...bounds);
+    const range = a.graphView.getState().range, measurements = model.extractMeasurements(data);
+    for (const field of ["weight", "bodyFat"]) {
+      const visible = model.filterMeasurements(measurements[field], range);
+      const extraValues = model.movingAverageSegments(measurements[field], range).flat().map(p => p.value);
+      const original = model.calculateYAxis(visible, targets[field], { extraValues });
+      const expanded = model.calculateYAxis(visible, targets[field], { extraValues, padding: .25 });
+      assert.ok(Math.abs((expanded.max - expanded.min) / (original.max - original.min) - 1.25) < 1e-9);
+      assert.ok(Math.abs((expanded.max + expanded.min) - (original.max + original.min)) < 1e-9);
+      points(a, field).forEach((point, index) => assert.ok(Math.abs(Number(point.attrs.cy) - (12 + model.calculateY(visible[index].value, expanded, 180))) < 1e-9));
+      assert.deepEqual(byClass(svg(a, field), "graph-grid-line").map(line => Number(line.attrs.y1)), expanded.ticks.map(tick => 12 + model.calculateY(tick.value, expanded, 180)));
+      for (const value of [targets[field].min, targets[field].max, ...extraValues]) assert.ok(value >= expanded.min && value <= expanded.max);
+      const plain = model.buildChartData(measurements[field], range, targets[field], { field, width: 200, height: 180, extraValues });
+      assert.deepEqual(a.get(`graph-${field}-summary`).children.map(item => item.children[1].textContent), [plain.summary.first.raw + plain.summary.unit, plain.summary.last.raw + plain.summary.unit,
+        plain.summary.change === null ? "—" : `${plain.summary.change.startsWith("-") ? "−" + plain.summary.change.slice(1) : plain.summary.change === "0" ? "0" : "+" + plain.summary.change}${field === "weight" ? "kg" : "pt"}`]);
+    }
+    assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0); assert.equal(a.store.ackWrites, 0);
+  }
+});
+
 test("average curves use pre-display samples but do not connect single averages across unsupported gaps", () => {
   const a = app({ "2041-01-01": day({ weight: "140" }), "2041-01-27": day({ weight: "60" }), "2041-01-28": day({ weight: "50" }),
     "2041-03-01": day({ weight: "61" }), "2041-03-02": day({ weight: "62" }), "2041-03-03": day({ weight: "63" }) });
