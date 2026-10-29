@@ -105,6 +105,62 @@ function swipe(a, from = [100, 180], to = [220, 185], target = {}) {
   screen.fire("touchend", { touches: [], changedTouches: [touch(to)] });
 }
 
+test("moving average defaults on for both graphs and toggles without changing period selection scroll or saved data", () => {
+  const a = app({ ...fixture(), "2032-05-02": day({ weight: "56.1", bodyFat: "16.2" }) }), before = a.store.raw, extras = JSON.stringify([...a.store.extras]); a.open();
+  assert.equal(a.get("graph-moving-average").checked, true);
+  for (const field of ["weight", "bodyFat"]) {
+    const paths = byClass(svg(a, field), "graph-moving-average"); assert.equal(paths.length, 1);
+    assert.equal(paths[0].attrs["pointer-events"], "none"); assert.equal(paths[0].attrs["aria-hidden"], "true");
+    assert.match(paths[0].attrs.d, /^M .* C /);
+  }
+  select(a, "weight", 0); const state = a.graphView.getState(), summaries = ["weight", "bodyFat"].map(field => text(a.get(`graph-${field}-summary`)));
+  const scrolls = a.scrolls.length;
+  a.get("graph-moving-average").checked = false; a.get("graph-moving-average").fire("change");
+  for (const field of ["weight", "bodyFat"]) {
+    assert.equal(byClass(svg(a, field), "graph-moving-average").length, 0);
+    assert.equal(a.get(`graph-${field}-average-legend`).hidden, true);
+    assert.equal(byClass(svg(a, field), "graph-measurement-line").length, 1);
+  }
+  assert.deepEqual(a.graphView.getState(), state); assert.equal(a.scrolls.length, scrolls);
+  a.get("graph-moving-average").checked = true; a.get("graph-moving-average").fire("change");
+  assert.deepEqual(a.graphView.getState(), state); assert.equal(a.scrolls.length, scrolls);
+  assert.deepEqual(["weight", "bodyFat"].map(field => text(a.get(`graph-${field}-summary`))), summaries);
+  select(a, "bodyFat", 2); assert.equal(a.graphView.getState().selectedDate, "2032-05-10");
+  a.get("graph-point-previous").click(); assert.equal(a.graphView.getState().selectedDate, "2032-05-02");
+  a.mode("1m"); swipe(a); swipe(a, [250, 180], [130, 185]); assert.equal(a.graphView.getState().offset, 0);
+  assert.equal(a.get("graph-moving-average").checked, true);
+  assert.equal(a.store.raw, before); assert.equal(JSON.stringify([...a.store.extras]), extras); assert.equal(a.store.writes, 0); assert.equal(a.store.ackWrites, 0);
+});
+
+test("average curves use pre-display samples but do not connect single averages across unsupported gaps", () => {
+  const a = app({ "2041-01-01": day({ weight: "140" }), "2041-01-27": day({ weight: "60" }), "2041-01-28": day({ weight: "50" }),
+    "2041-03-01": day({ weight: "61" }), "2041-03-02": day({ weight: "62" }), "2041-03-03": day({ weight: "63" }) });
+  a.open(); custom(a, "2041-01-27", "2041-01-28"); assert.equal(byClass(svg(a), "graph-moving-average").length, 1);
+  assert.equal(points(a).length, 2); assert.match(text(a.get("graph-weight-summary")), /60kg.*50kg.*−10kg/);
+  custom(a, "2041-01-28", "2041-03-02"); assert.equal(byClass(svg(a), "graph-moving-average").length, 0);
+  custom(a, "2041-01-01", "2041-03-03"); assert.equal(byClass(svg(a), "graph-moving-average").length, 2);
+  assert.equal(byClass(a.get("graph-bodyFat-plot"), "graph-moving-average").length, 0);
+  custom(a, "2041-03-01", "2041-03-01"); assert.equal(byClass(svg(a), "graph-moving-average").length, 0);
+  assert.equal(a.store.writes, 0);
+});
+
+test("smooth average Bezier controls remain between endpoint values and inside the existing plot", () => {
+  const data = {}; [55, 65, 50, 70, 45, 80, 40].forEach((weight, index) => { data[model.addDays("2041-01-01", index)] = day({ weight: String(weight) }); });
+  const a = app(data); a.open(); const path = byClass(svg(a), "graph-moving-average")[0].attrs.d;
+  const values = path.match(/[-+]?(?:\d*\.?\d+)(?:e[-+]?\d+)?/gi).map(Number); let [x, y] = values;
+  assert.equal((values.length - 2) % 6, 0);
+  for (let index = 2; index < values.length; index += 6) {
+    const [x1, y1, x2, y2, nextX, nextY] = values.slice(index, index + 6), low = Math.min(y, nextY), high = Math.max(y, nextY);
+    assert.ok(x <= x1 && x1 <= x2 && x2 <= nextX);
+    for (const control of [y1, y2]) assert.ok(control >= low - 1e-9 && control <= high + 1e-9);
+    for (let step = 0; step <= 10; step++) {
+      const t = step / 10, value = (1 - t) ** 3 * y + 3 * (1 - t) ** 2 * t * y1 + 3 * (1 - t) * t ** 2 * y2 + t ** 3 * nextY;
+      assert.ok(value >= low - 1e-9 && value <= high + 1e-9); assert.ok(value >= 12 && value <= 192);
+    }
+    x = nextX; y = nextY;
+  }
+});
+
 test("one shared measurement row navigates the union of dates and hides highlights for absent values", () => {
   const a = app({ "2041-01-01": day({ weight: "56.1" }), "2041-01-03": day({ bodyFat: "16.1" }),
     "2041-01-05": day({ weight: "56.2", bodyFat: "16.2" }) }, { today: "2041-01-06" }), before = a.store.raw;
@@ -127,13 +183,14 @@ test("one shared measurement row navigates the union of dates and hides highligh
 
 test("graph has one single-line selection row after both chart cards and no per-chart measurement controls", () => {
   assert.equal((html.match(/id="graph-selected"/g) || []).length, 1);
+  assert.equal((html.match(/id="graph-moving-average"/g) || []).length, 1);
   assert.equal((html.match(/>前の測定<\/button>/g) || []).length, 1); assert.equal((html.match(/>次の測定<\/button>/g) || []).length, 1);
   assert.doesNotMatch(html, /id="graph-(?:weight|bodyFat)-(?:selected|previous|next)"/);
   const section = html.slice(html.indexOf('<section id="graph-screen"'), html.indexOf('<section id="summary-screen"'));
   assert.ok(section.indexOf('id="graph-weight-heading"') < section.indexOf('id="graph-bodyFat-heading"'));
   assert.ok(section.indexOf('id="graph-bodyFat-heading"') < section.indexOf('id="graph-selected"'));
   assert.match(section, /id="graph-bodyFat-attention"[^>]*><\/div>\s*<\/section>\s*<section class="card graph-shared-selection" aria-labelledby="graph-selected-heading">\s*<h3 id="graph-selected-heading">選択中の測定<\/h3>\s*<p id="graph-selected"/);
-  assert.match(section, /id="graph-selected"[^>]*>[^<]*<\/p>\s*<div class="graph-point-actions">\s*<button id="graph-point-previous"[^>]*>前の測定<\/button>\s*<button id="graph-point-next"[^>]*>次の測定<\/button>\s*<\/div>\s*<\/section>\s*<\/section>/);
+  assert.match(section, /id="graph-selected"[^>]*>[^<]*<\/p>\s*<div class="graph-point-actions">\s*<button id="graph-point-previous"[^>]*>前の測定<\/button>\s*<button id="graph-point-next"[^>]*>次の測定<\/button>\s*<\/div>\s*<label class="graph-average-toggle"><input id="graph-moving-average" type="checkbox" checked>4週間移動平均<\/label>\s*<\/section>\s*<\/section>/);
   const css = fs.readFileSync(path.join(root, "style.css"), "utf8");
   assert.match(css, /\.graph-selected\s*\{[^}]*white-space: nowrap;[^}]*overflow-x: auto/);
   assert.match(html, /<option value="all" selected>/);

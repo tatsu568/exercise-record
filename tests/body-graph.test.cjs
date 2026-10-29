@@ -12,6 +12,46 @@ const target = Object.freeze({ min: 56, max: 56.9 });
 const range = Object.freeze({ start: "2032-05-01", end: "2032-05-31" });
 const freeze = (value) => { if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); } return value; };
 
+test("moving averages use the inclusive trailing 28 calendar days and pre-display records, not 28 measurements", () => {
+  const points = freeze(series([["2041-09-30", "200"], ["2041-10-01", "60"], ["2041-10-15", "66"], ["2041-10-28", "72"], ["2041-10-29", "80"], ["2041-11-01", "90"]]));
+  const before = JSON.stringify(points), segments = graph.movingAverageSegments(points, { start: "2041-10-28", end: "2041-10-29" });
+  assert.deepEqual(segments[0].map(p => [p.date, p.count]), [["2041-10-28", 3], ["2041-10-29", 3]]);
+  assert.equal(segments[0][0].value, 66); assert.ok(Math.abs(segments[0][1].value - 218 / 3) < 1e-12);
+  assert.equal(JSON.stringify(points), before);
+});
+
+test("moving averages independently exclude missing empty zero and invalid measurements without filling dates", () => {
+  const data = freeze(graph.extractMeasurements({ "2041-01-01": day({ weight: "50", bodyFat: "10" }),
+    "2041-01-02": day({ weight: "0", bodyFat: "20" }), "2041-01-03": day({ weight: "", bodyFat: "bad" }),
+    "2041-01-04": day({ weight: "70" }), "2041-01-05": day({ weight: "NaN", bodyFat: 30 }) }));
+  const bounds = { start: "2041-01-01", end: "2041-01-28" };
+  assert.deepEqual(graph.movingAverageSegments(data.weight, bounds).flat().map(p => [p.date, p.value, p.count]), [["2041-01-04", 60, 2]]);
+  assert.deepEqual(graph.movingAverageSegments(data.bodyFat, bounds).flat().map(p => [p.date, p.value, p.count]), [["2041-01-02", 15, 2]]);
+  assert.deepEqual(graph.movingAverageSegments([], bounds), []); assert.deepEqual(graph.movingAverageSegments(data.weight, null), []);
+});
+
+test("insufficient windows split average segments across long gaps and leap-day boundaries are calendar based", () => {
+  const data = series([["2041-01-01", "50"], ["2041-01-02", "52"], ["2041-01-03", "54"],
+    ["2041-03-01", "60"], ["2041-03-02", "62"], ["2041-03-03", "64"]]);
+  const segments = graph.movingAverageSegments(data, { start: "2041-01-01", end: "2041-03-03" });
+  assert.deepEqual(segments.map(segment => segment.map(p => p.date)), [["2041-01-02", "2041-01-03"], ["2041-03-02", "2041-03-03"]]);
+  assert.deepEqual(graph.movingAverageSegments(data.slice(0, 1), { start: "2041-01-01", end: "2041-03-03" }), []);
+  const leap = graph.movingAverageSegments(series([["2040-02-01", "100"], ["2040-02-02", "10"], ["2040-02-29", "30"], ["2040-03-01", "50"]]), { start: "2040-02-29", end: "2040-03-01" });
+  assert.deepEqual(leap[0].map(p => [p.value, p.count]), [[20, 2], [40, 2]]);
+});
+
+test("average-supported axes contain earlier outlying values while actual summaries remain unchanged", () => {
+  const points = series([["2041-10-01", "140"], ["2041-10-27", "60"], ["2041-10-28", "50"]]), bounds = { start: "2041-10-27", end: "2041-10-28" };
+  const extraValues = graph.movingAverageSegments(points, bounds).flat().map(p => p.value);
+  const options = { field: "weight", width: 250, height: 180 }, plain = graph.buildChartData(points, bounds, target, options);
+  const chart = graph.buildChartData(points, bounds, target, { ...options, extraValues });
+  assert.ok(chart.yAxis.max > plain.yAxis.max); assert.deepEqual(chart.summary, plain.summary);
+  assert.deepEqual(chart.points.map(p => p.raw), ["60", "50"]);
+  for (const value of extraValues) assert.ok(graph.calculateY(value, chart.yAxis, 180) >= 0);
+  const extreme = graph.movingAverageSegments(series([["2041-01-01", String(Number.MAX_VALUE)], ["2041-01-02", String(Number.MAX_VALUE)]]), { start: "2041-01-01", end: "2041-01-02" });
+  assert.equal(extreme[0][0].value, Number.MAX_VALUE);
+});
+
 for (const [left, right, expected] of [["56", "56.00", 0], ["44.999999999999999999", "45", -1],
   ["70.000000000000000001", "70", 1], ["9007199254740992", "9007199254740993", -1],
   ["0", "3", -1], ["-0.1", "0", -1], ["1e-325", "0", 1], ["+5.6e1", "056.000", 0],

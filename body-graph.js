@@ -187,6 +187,30 @@
     return sorted.filter((point) => point.date >= range.start && point.date <= range.end);
   }
 
+  // Trailing 28 calendar days, at measured dates only. A one-sample window
+  // breaks the curve; earlier saved measurements still support visible dates.
+  function movingAverageSegments(points, range) {
+    const sorted = orderedPoints(points), segments = [];
+    if (range === null) return segments;
+    customPeriod(range.start, range.end);
+    if (sorted.some((point) => point.field !== sorted[0].field)) throw new TypeError("異なる項目の測定点が混在しています");
+    let first = 0, segment = null;
+    for (let index = 0; index < sorted.length; index++) {
+      const point = sorted[index];
+      if (point.date > range.end) break;
+      while (sorted[first].day < point.day - 27) first++;
+      if (point.date < range.start) continue;
+      const count = index - first + 1;
+      if (count < 2) { segment = null; continue; }
+      // At most 28 daily samples. Incremental averaging avoids sum overflow.
+      let value = sorted[first].value;
+      for (let sample = first + 1; sample <= index; sample++) value += (sorted[sample].value - value) / (sample - first + 1);
+      if (!segment) { segment = []; segments.push(segment); }
+      segment.push({ date: point.date, day: point.day, field: point.field, value, count });
+    }
+    return segments;
+  }
+
   function summarizeMeasurements(points, field) {
     if (!FIELDS.includes(field)) throw new RangeError("体重または体脂肪率を指定してください");
     const sorted = orderedPoints(points);
@@ -237,11 +261,13 @@
     if (target.min > target.max) throw new RangeError("目標下限は上限以下にしてください");
   }
 
-  function calculateYAxis(points, target, { padding = 0.1, minSpan = 1, tickCount = 5 } = {}) {
+  function calculateYAxis(points, target, { padding = 0.1, minSpan = 1, tickCount = 5, extraValues = [] } = {}) {
     validateTarget(target); dimension(minSpan);
     if (!Number.isFinite(padding) || padding < 0 || padding > 1 || !Number.isInteger(tickCount) || tickCount < 2 || tickCount > 20) throw new RangeError("縦軸オプションが不正です");
     let low = target.min, high = target.max;
     for (const point of orderedPoints(points)) { low = Math.min(low, point.value); high = Math.max(high, point.value); }
+    if (!Array.isArray(extraValues) || extraValues.some((value) => typeof value !== "number" || !Number.isFinite(value) || value <= 0)) throw new RangeError("補助線の値は正の有限数です");
+    for (const value of extraValues) { low = Math.min(low, value); high = Math.max(high, value); }
     const span = Math.max(high - low, minSpan), extra = (span - (high - low)) / 2;
     const margin = Math.max(span * padding, Number.MIN_VALUE);
     const min = Math.max(0, low - extra - margin);
@@ -306,6 +332,6 @@
 
   return Object.freeze({ parseDate, dateFromDay, addDays, daysBetween, shiftMonths, localDateString,
     parseMeasurement, sameMeasurement, measurementDifference, compareDecimals, extractMeasurements, customPeriod, rollingPeriod, allPeriod, calculatePeriod,
-    filterMeasurements, summarizeMeasurements, calculateX, makeXTicks, calculateYAxis, calculateY, calculateTargetBand,
+    filterMeasurements, movingAverageSegments, summarizeMeasurements, calculateX, makeXTicks, calculateYAxis, calculateY, calculateTargetBand,
     selectionInfo, adjacentMeasurement, buildChartData });
 });

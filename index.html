@@ -210,6 +210,7 @@
           <p id="graph-weight-goal" class="graph-goal"></p>
           <p id="graph-weight-attention-count" class="graph-attention-count" aria-live="polite"></p>
         </div>
+        <div class="graph-legend" aria-label="体重グラフの凡例"><span class="graph-legend-measured">実測値</span><span id="graph-weight-average-legend" class="graph-legend-average">4週間移動平均</span></div>
         <div id="graph-weight-plot" class="graph-plot"></div>
         <p id="graph-weight-empty" class="graph-empty" hidden>この期間に測定記録はありません</p>
         <div id="graph-weight-summary" class="graph-summary" hidden></div>
@@ -221,6 +222,7 @@
           <p id="graph-bodyFat-goal" class="graph-goal"></p>
           <p id="graph-bodyFat-attention-count" class="graph-attention-count" aria-live="polite"></p>
         </div>
+        <div class="graph-legend" aria-label="体脂肪率グラフの凡例"><span class="graph-legend-measured">実測値</span><span id="graph-bodyFat-average-legend" class="graph-legend-average">4週間移動平均</span></div>
         <div id="graph-bodyFat-plot" class="graph-plot"></div>
         <p id="graph-bodyFat-empty" class="graph-empty" hidden>この期間に測定記録はありません</p>
         <div id="graph-bodyFat-summary" class="graph-summary" hidden></div>
@@ -233,6 +235,7 @@
           <button id="graph-point-previous" class="date-step" type="button" disabled>前の測定</button>
           <button id="graph-point-next" class="date-step" type="button" disabled>次の測定</button>
         </div>
+        <label class="graph-average-toggle"><input id="graph-moving-average" type="checkbox" checked>4週間移動平均</label>
       </section>
     </section>
     <section id="summary-screen" aria-labelledby="summary-heading" hidden>

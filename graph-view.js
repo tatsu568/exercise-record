@@ -37,6 +37,24 @@
     return nearest;
   }
 
+  function averagePath(points) {
+    const slopes = points.slice(1).map((point, index) => (point.y - points[index].y) / (point.x - points[index].x));
+    const tangents = points.map((point, index) => {
+      if (!index) return slopes[0];
+      if (index === points.length - 1) return slopes[index - 1];
+      const before = slopes[index - 1], after = slopes[index];
+      return Math.sign(before) === Math.sign(after) ? Math.sign(before) * Math.min(Math.abs(before), Math.abs(after)) : 0;
+    });
+    let path = `M ${points[0].x} ${points[0].y}`;
+    for (let index = 1; index < points.length; index++) {
+      const a = points[index - 1], b = points[index], third = (b.x - a.x) / 3;
+      // Limited tangents keep both Bezier controls within the endpoint values:
+      // smooth joins without overshoot or invented extrema between averages.
+      path += ` C ${a.x + third} ${a.y + tangents[index - 1] * third} ${b.x - third} ${b.y - tangents[index] * third} ${b.x} ${b.y}`;
+    }
+    return path;
+  }
+
   function mount({ document, window, storage, navigation, today = () => model.localDateString(new Date()), getTargets = () => INITIAL_TARGETS, getTargetStatus = () => "",
     getAttentionSettings = () => ({ values: settings.DEFAULTS.attention, error: "" }),
     acknowledgementStore = acknowledgements.createStore({ storage, locks: window.navigator?.locks, isSecureContext: window.isSecureContext }) }) {
@@ -56,7 +74,7 @@
       if (text !== undefined) item.textContent = text;
       return item;
     };
-    const state = { open: false, mode: "all", anchor: null, offset: 0, custom: null, range: null,
+    const state = { open: false, mode: "all", anchor: null, offset: 0, custom: null, range: null, showMovingAverage: true,
       records: {}, measurements: { weight: [], bodyFat: [], excluded: [] }, selectedDate: null, error: false,
       attention: null, acknowledgement: { confirmed: null, error: "" }, attentionError: "", busy: false, actionMessage: "", actionError: false };
     const parts = {};
@@ -221,11 +239,13 @@
     function renderField(field, targets) {
       const container = get(`graph-${field}-plot`), width = widthOf(container), top = 12, bottom = 32, right = 12, height = 180;
       const visible = model.filterMeasurements(state.measurements[field], state.range);
-      const axis = model.calculateYAxis(visible, targets[field]);
+      const averages = state.showMovingAverage ? model.movingAverageSegments(state.measurements[field], state.range) : [];
+      const extraValues = averages.flatMap((segment) => segment.map((point) => point.value));
+      const axis = model.calculateYAxis(visible, targets[field], { extraValues });
       const left = Math.max(38, Math.min(90, Math.max(...axis.ticks.map((tick) => axisText(tick.value).length)) * 6 + 10));
       const plotWidth = Math.max(1, width - left - right);
       const data = model.buildChartData(visible, state.range, targets[field], { field, width: plotWidth, height,
-        minLabelSpacing: 1 });
+        minLabelSpacing: 1, extraValues });
       const unit = field === "weight" ? "kg" : "%";
       get(`graph-${field}-goal`).textContent = `目標：${targets[field].min.toFixed(1)}〜${targets[field].max.toFixed(1)}${unit}`;
       container.replaceChildren();
@@ -239,7 +259,7 @@
         const item = node("dl"); item.append(node("dt", label + "："), node("dd", value)); summary.append(item);
       }
       const svg = svgNode("svg", { viewBox: `0 0 ${width} ${top + height + bottom}`, width, height: top + height + bottom,
-        role: "img", tabindex: "0", "aria-label": `${TITLES[field]}。測定${data.points.length}件。点をタップ、または下の共通の前の測定・次の測定で選択できます。` });
+        role: "img", tabindex: "0", "aria-label": `${TITLES[field]}。測定${data.points.length}件。${state.showMovingAverage ? "細線と点は実測値、太線は4週間移動平均です。" : "実測値を表示しています。"}点をタップ、または下の共通の前の測定・次の測定で選択できます。` });
       if (data.targetBand.collapsed) svg.append(svgNode("line", { x1: left, x2: left + plotWidth, y1: top + data.targetBand.top, y2: top + data.targetBand.top, class: "graph-target-band" }));
       else svg.append(svgNode("rect", { x: left, y: top + data.targetBand.top, width: plotWidth, height: data.targetBand.height, class: "graph-target-band" }));
       for (const tick of data.yAxis.ticks) {
@@ -250,6 +270,11 @@
         svgNode("line", { x1: left, x2: left + plotWidth, y1: top + height, y2: top + height, class: "graph-axis" }));
       const dateTicks = svgNode("g", {}); svg.append(dateTicks);
       if (data.points.length > 1) svg.append(svgNode("polyline", { points: data.points.map((point) => `${left + point.x},${top + point.y}`).join(" "), class: "graph-measurement-line" }));
+      for (const segment of averages) {
+        if (segment.length < 2) continue;
+        const points = segment.map((point) => ({ x: left + model.calculateX(point.date, state.range, plotWidth), y: top + model.calculateY(point.value, data.yAxis, height) }));
+        svg.append(svgNode("path", { d: averagePath(points), class: "graph-moving-average", "pointer-events": "none", "aria-hidden": "true" }));
+      }
       for (const point of data.points) {
         const circle = svgNode("circle", { cx: left + point.x, cy: top + point.y, r: 3, class: "graph-point" });
         circle.dataset.date = point.date; svg.append(circle);
@@ -273,6 +298,9 @@
       renderDateTicks(svg, dateTicks, state.range, plotWidth, left, top + height, width);
     }
     function controls() {
+      get("graph-moving-average").checked = state.showMovingAverage;
+      get("graph-moving-average").disabled = state.error;
+      for (const field of FIELDS) get(`graph-${field}-average-legend`).hidden = !state.showMovingAverage;
       get("graph-period").value = state.mode;
       get("graph-period").disabled = state.error;
       get("graph-custom").hidden = state.mode !== "custom";
@@ -341,6 +369,13 @@
       } catch (error) { status(error.message, true); }
     }
     get("graph-period").addEventListener("change", changeMode);
+    get("graph-moving-average").addEventListener("change", () => {
+      state.showMovingAverage = get("graph-moving-average").checked;
+      if (!state.open || state.error) return;
+      const targets = getTargets();
+      for (const field of FIELDS) { renderField(field, targets); get(`graph-${field}-average-legend`).hidden = !state.showMovingAverage; }
+      renderSelection();
+    });
     get("graph-previous").addEventListener("click", () => movePeriod(-1));
     get("graph-next").addEventListener("click", () => movePeriod(1));
     get("graph-latest").addEventListener("click", () => {

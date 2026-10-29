@@ -208,6 +208,8 @@ button { touch-action: manipulation; }
 .graph-status { margin: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .graph-status:empty { display: none; }
 .graph-status[data-error="true"] { color: #9a3b17; }
+.graph-average-toggle { display: flex; align-items: center; gap: 7px; min-height: 44px; margin-top: 8px; font-size: 13px; }
+.graph-average-toggle input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
 .graph-card { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; align-items: baseline; }
 .graph-card > :not(h3):not(.graph-meta) { grid-column: 1 / -1; }
 .graph-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; margin-bottom: 6px; }
@@ -219,9 +221,15 @@ button { touch-action: manipulation; }
 .graph-grid-line { stroke: var(--line); stroke-width: 1; }
 .graph-axis { stroke: #9da79f; stroke-width: 1; }
 .graph-axis-label { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-#graph-bodyFat-plot { --graph-color: #2563eb; }
-.graph-measurement-line { fill: none; stroke: var(--graph-color, var(--accent)); stroke-width: 2; stroke-linejoin: round; }
-.graph-point { fill: var(--graph-color, var(--accent)); }
+#graph-bodyFat-plot, .graph-card[aria-labelledby="graph-bodyFat-heading"] { --graph-color: #2563eb; }
+.graph-measurement-line { fill: none; stroke: var(--graph-color, var(--accent)); stroke-width: 1.25; stroke-opacity: .5; stroke-linejoin: round; }
+.graph-point { fill: var(--graph-color, var(--accent)); fill-opacity: .8; }
+.graph-moving-average { fill: none; stroke: var(--graph-color, var(--accent)); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.graph-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 6px; color: var(--muted); font-size: 12px; }
+.graph-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.graph-legend [hidden] { display: none; }
+.graph-legend span::before { content: ""; width: 22px; border-top: 3px solid var(--graph-color, var(--accent)); }
+.graph-legend .graph-legend-measured::before { border-top-width: 1.25px; opacity: .5; }
 .graph-guide { stroke: #68716b; stroke-width: 1; stroke-dasharray: 4 3; pointer-events: none; }
 .graph-selection { fill: var(--graph-color, var(--accent)); stroke: white; stroke-width: 2; }
 .graph-empty { padding: 24px 4px; color: var(--muted); text-align: center; }
