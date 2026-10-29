@@ -139,7 +139,10 @@
       const heading = node("span", undefined, "summary-card-heading"); heading.append(label, count);
       button.append(heading, row, change); get("summary-cards").append(button);
       cards[metric.field] = { button, number, unit, difference, change, count };
-      button.addEventListener("click", () => { state.field = metric.field; render(); });
+      button.addEventListener("click", () => {
+        state.field = metric.field; render();
+        get("summary-heading").scrollIntoView({ block: "start", behavior: "auto" });
+      });
     }
     for (const [id, direction] of [["summary-previous", -1], ["summary-next", 1]]) get(id).addEventListener("click", () => {
       if (!state.range || !state.latest) return;

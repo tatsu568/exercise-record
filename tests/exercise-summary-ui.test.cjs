@@ -54,6 +54,7 @@ test("summary mounts as a fourth read-only tab, with six selectable cards and cu
 
 test("each card selects the same single four-week graph, including no-data weeks and saved zeros", () => {
   const a = app(); a.openSummary();
+  const scrolls = []; a.get("summary-heading").scrollIntoView = options => scrolls.push(options);
   const titles = { squat: "スクワット・週ごとの合計 (回)", march: "足踏み・週ごとの合計 (回)", plank: "プランク・週ごとの合計 (秒)",
     standing: "スタンディング・週ごとの平均 (H)", walkSteps: "散歩歩数・週ごとの合計 (歩)", distance: "散歩距離・週ごとの合計 (km)" };
   for (const field of ["squat", "march", "plank", "standing", "walkSteps", "distance"]) {
@@ -63,9 +64,12 @@ test("each card selects the same single four-week graph, including no-data weeks
     assert.equal(a.get("summary-plot").dataset.field, field);
     assert.equal(a.get("summary-plot").children.length, 1); assert.equal(weeks(a).length, 4);
     assert.equal(a.get("summary-cards").children.filter(item => item.attrs["aria-pressed"] === "true").length, 1);
+    assert.deepEqual(scrolls.at(-1), { block: "start", behavior: "auto" });
   }
+  assert.equal(scrolls.length, 6);
   assert.deepEqual(Array.from(weeks(a), item => item.attrs["data-value"]), ["1.2", "0", "", ""]);
   assert.match(text(a.get("summary-plot")), /データなし/); assert.equal(a.store.writes, 0);
+  a.summary.refresh(); a.get("summary-previous").click(); assert.equal(scrolls.length, 6);
 });
 
 test("28-day navigation updates totals, comparisons and graph together and preserves the selected metric", () => {
