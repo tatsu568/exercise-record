@@ -69,7 +69,38 @@ test("each card selects the same single four-week graph, including no-data weeks
   assert.equal(scrolls.length, 6);
   assert.deepEqual(Array.from(weeks(a), item => item.attrs["data-value"]), ["1.2", "0", "", ""]);
   assert.match(text(a.get("summary-plot")), /データなし/); assert.equal(a.store.writes, 0);
-  a.summary.refresh(); a.get("summary-previous").click(); assert.equal(scrolls.length, 6);
+  a.summary.refresh(); assert.equal(scrolls.length, 6);
+  a.get("summary-previous").click(); assert.equal(scrolls.length, 7);
+});
+
+test("only actual button and swipe period changes scroll to the heading after rendering", () => {
+  const a = app(), before = a.store.raw, extras = JSON.stringify([...a.store.extras]); a.openSummary();
+  const scrolls = [];
+  a.get("summary-heading").scrollIntoView = options => scrolls.push({ options,
+    range: a.get("summary-range").textContent, values: Array.from(weeks(a), item => item.attrs["data-value"]) });
+  a.get("summary-latest").click(); a.get("summary-next").click(); assert.equal(scrolls.length, 0);
+  a.get("summary-previous").click();
+  assert.equal(scrolls.length, 1); assert.equal(scrolls[0].range, "2041/3/18(月)〜4/14(日)");
+  assert.deepEqual(scrolls[0].values, ["5", "", "", ""]);
+  a.get("summary-next").click();
+  assert.equal(scrolls.length, 2); assert.equal(scrolls[1].range, "2041/4/15(月)〜5/12(日)");
+  assert.deepEqual(scrolls[1].values, ["15", "0", "", ""]);
+  a.get("summary-previous").click(); a.get("summary-latest").click(); assert.equal(scrolls.length, 4);
+  // Also exercise the no-change handlers without the disabled button guard.
+  a.get("summary-latest").fire("click"); a.get("summary-next").fire("click"); assert.equal(scrolls.length, 4);
+  const swipe = (start, end) => {
+    a.get("summary-screen").fire("touchstart", { touches: [{ clientX: start, clientY: 180 }] });
+    a.get("summary-screen").fire("touchend", { touches: [], changedTouches: [{ clientX: end, clientY: 183 }] });
+  };
+  swipe(100, 220); assert.equal(scrolls.length, 5); assert.equal(a.summary.getState().range.end, "2041-04-14");
+  swipe(250, 130); assert.equal(scrolls.length, 6); assert.equal(a.summary.getState().range.end, "2041-05-12");
+  swipe(250, 130); assert.equal(scrolls.length, 6);
+  a.summary.refresh(); a.emit("focus"); a.emit("resize");
+  for (const screen of ["graph", "input", "summary"]) a.get(screen + "-show").click();
+  assert.equal(scrolls.length, 6);
+  for (const item of scrolls) assert.deepEqual(item.options, { block: "start", behavior: "auto" });
+  assert.equal(a.store.raw, before); assert.equal(JSON.stringify([...a.store.extras]), extras);
+  assert.equal(a.store.writes, 0); assert.equal(a.store.ackWrites, 0);
 });
 
 test("28-day navigation updates totals, comparisons and graph together and preserves the selected metric", () => {

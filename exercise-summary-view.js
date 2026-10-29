@@ -130,6 +130,15 @@
       } catch (error) { state.data = null; state.error = error.message || "保存データを読み取れません。保存内容は変更していません。"; }
       render();
     }
+    function scrollToHeading() {
+      get("summary-heading").scrollIntoView({ block: "start", behavior: "auto" });
+    }
+    function changePeriod(range) {
+      const previous = state.range;
+      state.range = range; refresh();
+      if (state.open && previous && state.range &&
+          (previous.start !== state.range.start || previous.end !== state.range.end)) scrollToHeading();
+    }
     for (const metric of model.METRICS) {
       const button = node("button", undefined, "summary-card"), label = node("span", metric.label, "summary-card-label");
       button.type = "button"; button.dataset.field = metric.field; button.setAttribute("aria-controls", "summary-plot");
@@ -141,17 +150,17 @@
       cards[metric.field] = { button, number, unit, difference, change, count };
       button.addEventListener("click", () => {
         state.field = metric.field; render();
-        get("summary-heading").scrollIntoView({ block: "start", behavior: "auto" });
+        scrollToHeading();
       });
     }
     for (const [id, direction] of [["summary-previous", -1], ["summary-next", 1]]) get(id).addEventListener("click", () => {
       if (!state.range || !state.latest) return;
       const next = model.movePeriod(state.range, direction, state.latest);
-      if (next) { state.range = next; refresh(); }
+      if (next) changePeriod(next);
     });
     get("summary-latest").addEventListener("click", () => {
       if (!state.open) return;
-      state.range = null; refresh();
+      changePeriod(null);
     });
     navigation.connectPeriodSwipe({ element: get("summary-screen"), window, enabled: () => state.open && !state.error,
       move: (direction) => get(direction < 0 ? "summary-previous" : "summary-next").click() });
