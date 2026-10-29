@@ -259,6 +259,14 @@
         <h3 id="summary-chart-heading"></h3>
         <div id="summary-plot" class="graph-plot"></div>
       </section>
+      <section class="summary-weekly-achievements" aria-labelledby="summary-achievement-heading">
+        <h3 id="summary-achievement-heading">目標達成状況</h3>
+        <div class="summary-achievement-period" role="group" aria-label="目標達成状況の表示期間">
+          <button id="summary-achievement-4w" class="date-step" type="button" aria-pressed="true" aria-controls="summary-achievement-cards">4週間</button>
+          <button id="summary-achievement-all" class="date-step" type="button" aria-pressed="false" aria-controls="summary-achievement-cards">全期間</button>
+        </div>
+        <div id="summary-achievement-cards" class="summary-cards" aria-live="polite"></div>
+      </section>
       <div class="summary-notes">
         <p id="summary-aggregation-note" class="summary-note">項目横の(7/28)は、運動5項目では実施日数、スタンディングでは平均対象日数です。未記録と0は区別します。</p>
         <p class="summary-note">保存済みの記録だけを集計します。目標は現在の設定値を過去の期間にも適用します。散歩はアプリに記録した分だけが対象です。</p>
@@ -268,6 +276,8 @@
           <p class="summary-note">スタンディングは有効記録日の平均で、項目横の日数は平均対象日数です。保存済みの初期値10Hが平均に含まれる場合があり、実際の活動時間を保証するものではありません。</p>
           <p id="summary-graph-note" class="summary-note">各週は月曜〜日曜です。データなしは棒を表示せず、保存された0は基準線と「0」で表示します。平均・平均との差は小数第2位まで表示します。</p>
           <p class="summary-note">破線は週間目標（スタンディングは1日平均目標）です。達成率は4週間合計と週間目標の4倍を比較し、スタンディングだけは4週間の有効記録日平均と1日目標を直接比較します。現在の目標を全期間に適用し、記録不足を補完せず、保存済みの実績で判定します。</p>
+          <p class="summary-note">目標達成状況は、週間目標を達成した週数／対象週数と、その割合（整数%）です。スタンディングは週の有効記録日平均で判定します。4週間は上の表示期間に連動し、全期間は最初の保存日が月曜ならその週、それ以外は翌週から直近の完了週までです。記録のない週も対象に含み、未達成とします。現在の運動目標を過去にも適用するため、目標を変更すると過去の達成結果も変わります。</p>
+          <p class="summary-note">記号は丸め前の達成週率で判定します。★：100%、◎：75%以上100%未満、○：50%以上75%未満、△：0%超50%未満、—：0%です。目標未設定・対象週なしの場合は評価しません。</p>
         </details>
       </div>
     </section>

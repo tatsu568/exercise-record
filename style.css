@@ -191,6 +191,23 @@ button { touch-action: manipulation; }
 .summary-bar { fill: var(--metric-color); }
 .summary-zero { stroke: var(--metric-color); stroke-width: 2; }
 .summary-no-data, .summary-week-dates { fill: var(--muted); font-size: 10px; }
+.summary-weekly-achievements { min-width: 0; }
+#summary-achievement-heading { margin: 0 0 8px; font-size: 16px; }
+.summary-achievement-period { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; }
+.summary-achievement-period button { min-width: 0; min-height: 44px; }
+.summary-achievement-period [aria-pressed="true"] { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.summary-weekly-card { --achievement-color: var(--muted); min-width: 0; padding: 12px 10px; border: 1px solid var(--line); border-radius: 13px; background: white; }
+.summary-weekly-row { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; min-width: 0; }
+.summary-weekly-row + .summary-weekly-row { margin-top: 6px; font-variant-numeric: tabular-nums; }
+.summary-weekly-label { min-width: 0; font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
+.summary-weekly-symbol, .summary-weekly-rate { flex-shrink: 0; color: var(--achievement-color); }
+.summary-weekly-symbol { font-size: 16px; }
+.summary-weekly-count { color: var(--ink); white-space: nowrap; font-size: 13px; }
+.summary-weekly-rate { font-size: 12px; }
+.summary-weekly-card[data-level="perfect"] { --achievement-color: #2563eb; }
+.summary-weekly-card[data-level="high"] { --achievement-color: #23865a; }
+.summary-weekly-card[data-level="half"] { --achievement-color: #ad5e18; }
+.summary-weekly-card[data-level="some"] { --achievement-color: #936d00; }
 #graph-screen[hidden], #graph-custom[hidden], .graph-summary[hidden], .graph-empty[hidden] { display: none; }
 #graph-screen, .graph-card, .graph-controls, .graph-plot { min-width: 0; }
 #graph-heading { margin: 0 0 10px; font-size: 19px; }

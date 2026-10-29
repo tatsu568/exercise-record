@@ -4,6 +4,64 @@ const model = require("../exercise-summary.js"), calendar = require("../body-gra
 const range = { start: "2041-04-15", end: "2041-05-12" };
 const day = (values = {}) => ({ ...transfer.DEFAULT_ENTRY, ...values });
 
+test("weekly achievements reuse six weekly aggregates, exact totals and unrounded standing averages without mutation", () => {
+  const records = {
+    "2041-04-15": { squat: 5, march: 1, plank: 30, standing: 10, walkSteps: "1000", distance: "0.1" },
+    "2041-04-16": { squat: 5, march: 1, plank: 30, standing: 20, walkSteps: "1000", distance: "0.2" },
+    "2041-04-22": { squat: 0, march: 2, plank: 60, standing: 14, walkSteps: "2000", distance: "0.3" },
+    "2041-04-29": { squat: 10, march: "bad", plank: 31, standing: 15, walkSteps: "", distance: "bad" }
+  };
+  const before = JSON.stringify(records), summary = model.buildSummary(records, range);
+  const goals = { squat: 10, march: 2, plank: 60, standing: 15, walkSteps: 2000, distance: .3 };
+  const result = model.weeklyAchievements(summary.weeks, goals);
+  assert.equal(result.totalWeeks, 4);
+  for (const field of Object.keys(goals)) assert.deepEqual(result.metrics[field], { status: "ready", achievedWeeks: 2, rate: 50, level: "half" });
+  const below = { ...summary.weeks[0], metrics: { standing: { count: 3, value: "15", average: 14.9999 } } };
+  assert.equal(model.weeklyAchievements([below], { standing: 15 }).metrics.standing.achievedWeeks, 0);
+  assert.deepEqual(model.buildSummary(records, range), summary); assert.equal(JSON.stringify(records), before);
+});
+
+test("weekly rating boundaries use the exact fraction rather than the rounded percentage", () => {
+  const yes = { metrics: { squat: { count: 1, value: "10" } } }, no = { metrics: { squat: { count: 1, value: "0" } } };
+  for (const [achieved, total, rate, level] of [[4, 4, 100, "perfect"], [3, 4, 75, "high"], [2, 4, 50, "half"], [1, 4, 25, "some"], [0, 4, 0, "zero"],
+    [149, 200, 75, "half"], [99, 200, 50, "some"], [199, 200, 100, "high"], [1, 201, 0, "some"]]) {
+    const result = model.weeklyAchievements([...Array(achieved).fill(yes), ...Array(total - achieved).fill(no)], { squat: 10 });
+    assert.deepEqual(result.metrics.squat, { status: "ready", achievedWeeks: achieved, rate, level });
+  }
+});
+
+test("missing invalid or zero goals are unset; missing weeks cannot achieve and zero weeks are not zero percent", () => {
+  const weeks = model.buildSummary({ "2041-04-15": { squat: 0 } }, range).weeks;
+  for (const goal of [null, undefined, 0, -1, NaN, Infinity, "10"]) assert.equal(model.weeklyAchievements(weeks, { squat: goal }).metrics.squat.status, "unset");
+  assert.deepEqual(model.weeklyAchievements(weeks, { squat: 10 }).metrics.squat, { status: "ready", achievedWeeks: 0, rate: 0, level: "zero" });
+  assert.deepEqual(model.weeklyAchievements([], { squat: 10 }).metrics.squat, { status: "no-weeks" });
+});
+
+test("all-time begins on the first full Monday week, includes empty weeks and excludes the current week", () => {
+  const latest = model.latestPeriod("2041-05-13");
+  for (let weekday = 0; weekday < 7; weekday++) {
+    const first = calendar.addDays("2041-04-15", weekday);
+    const records = { [first]: { squat: 10 }, "2041-04-22": { squat: 10 }, "2041-05-13": { squat: 100 } };
+    const result = model.allTimeAchievements(records, latest, { squat: 10 });
+    assert.equal(result.totalWeeks, weekday === 0 ? 4 : 3);
+    assert.equal(result.metrics.squat.achievedWeeks, weekday === 0 ? 2 : 1);
+  }
+  const firstHasOnlyBodyData = model.allTimeAchievements({ "2041-03-18": { weight: "56" }, "2041-05-12": { squat: 10 } }, latest, { squat: 10 });
+  assert.equal(firstHasOnlyBodyData.totalWeeks, 8); assert.equal(firstHasOnlyBodyData.metrics.squat.achievedWeeks, 1);
+  for (const records of [{}, { "2041-05-12": { squat: 10 } }, { "2041-05-13": { squat: 10 } }]) {
+    const result = model.allTimeAchievements(records, latest, { squat: 10 });
+    assert.equal(result.totalWeeks, 0); assert.equal(result.metrics.squat.status, "no-weeks");
+  }
+});
+
+test("all-time crosses years and recalculates historical achievements with current goals", () => {
+  const records = Object.freeze({ "2040-12-24": Object.freeze({ distance: "0.3", standing: 15 }), "2041-01-06": Object.freeze({ distance: "0.5", standing: 10 }) });
+  const latest = model.latestPeriod("2041-01-07"), low = model.allTimeAchievements(records, latest, { distance: .3, standing: 10 });
+  assert.equal(low.totalWeeks, 2); assert.equal(low.metrics.distance.achievedWeeks, 2); assert.equal(low.metrics.standing.achievedWeeks, 2);
+  const high = model.allTimeAchievements(records, latest, { distance: .4, standing: 15 });
+  assert.equal(high.metrics.distance.achievedWeeks, 1); assert.equal(high.metrics.standing.achievedWeeks, 1);
+});
+
 test("goals use four weekly totals, exact decimal differences and uncapped integer achievement rates", () => {
   for (const field of ["squat", "march", "plank", "walkSteps", "distance"]) {
     for (const [actual, rate, achieved, difference] of [["310", "97", false, "-10"], ["319", "99", false, "-1"], ["320", "100", true, "0"], ["400", "125", true, "80"]]) {

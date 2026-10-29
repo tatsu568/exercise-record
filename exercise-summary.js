@@ -101,9 +101,9 @@
     return { current, previous, comparisons, weeks };
   }
   // Goal arithmetic uses the existing totals; it never fills missing records.
-  function goalProgress(field, metric, weeklyGoal) {
+  function goalProgress(field, metric, weeklyGoal, weekCount = 4) {
     if (typeof weeklyGoal !== "number" || !Number.isFinite(weeklyGoal) || weeklyGoal <= 0) return { status: "unset" };
-    const target = field === "standing" ? String(weeklyGoal) : sum(Array(4).fill(String(weeklyGoal)));
+    const target = field === "standing" ? String(weeklyGoal) : sum(Array(weekCount).fill(String(weeklyGoal)));
     if (!metric || !metric.count || metric.value === null) return { status: "no-data", target };
     const actual = field === "standing" ? String(metric.average) : metric.value;
     const parts = (raw) => { const [base, exponent = "0"] = raw.toLowerCase().split("e"); return { digits: BigInt(base.replace(".", "")), power: Number(exponent) - (base.split(".")[1] || "").length }; };
@@ -115,5 +115,38 @@
     return { status: "ready", target, achieved, rate: String(!achieved && rounded >= 100n ? 99n : rounded),
       difference: roundedDifference === "0" && difference !== "0" ? String(Number(Number(difference).toPrecision(2))) : roundedDifference };
   }
-  return Object.freeze({ METRICS, latestPeriod, movePeriod, aggregate, buildSummary, goalProgress });
+  function weeklyAchievements(weeks, goals, totalWeeks = weeks.length) {
+    const metrics = Object.fromEntries(METRICS.map(({ field }) => {
+      const goal = goals[field];
+      if (goalProgress(field, null, goal, 1).status === "unset") return [field, { status: "unset" }];
+      if (!totalWeeks) return [field, { status: "no-weeks" }];
+      const achievedWeeks = weeks.filter(week => goalProgress(field, week.metrics[field], goal, 1).achieved).length;
+      // Classify the exact fraction, before rounding the percentage for display.
+      const level = achievedWeeks === totalWeeks ? "perfect" : achievedWeeks * 4 >= totalWeeks * 3 ? "high"
+        : achievedWeeks * 2 >= totalWeeks ? "half" : achievedWeeks > 0 ? "some" : "zero";
+      return [field, { status: "ready", achievedWeeks, rate: Math.round(achievedWeeks / totalWeeks * 100), level }];
+    }));
+    return { totalWeeks, metrics };
+  }
+
+  function allTimeAchievements(records, latest, goals) {
+    validatePeriod(latest);
+    const dates = Object.keys(records).sort();
+    if (!dates.length) return weeklyAchievements([], goals);
+    const first = calendar.parseDate(dates[0]).ordinal;
+    const start = first + (7 - first % 7) % 7, end = calendar.parseDate(latest.end).ordinal;
+    if (start > end) return weeklyAchievements([], goals);
+    const totalWeeks = (end - start + 1) / 7, groups = new Map();
+    // Empty weeks remain in the denominator without inventing any records.
+    for (const date of dates) {
+      const day = calendar.parseDate(date).ordinal;
+      if (day < start || day > end) continue;
+      const monday = calendar.dateFromDay(day - day % 7);
+      if (!groups.has(monday)) groups.set(monday, {});
+      groups.get(monday)[date] = records[date];
+    }
+    const weeks = Array.from(groups, ([start, entries]) => aggregate(entries, { start, end: calendar.addDays(start, 6) }));
+    return weeklyAchievements(weeks, goals, totalWeeks);
+  }
+  return Object.freeze({ METRICS, latestPeriod, movePeriod, aggregate, buildSummary, goalProgress, weeklyAchievements, allTimeAchievements });
 });

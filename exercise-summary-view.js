@@ -24,8 +24,9 @@
 
   function mount({ document, window, storage, navigation, settings = settingsModel.createStore(storage), today = () => calendar.localDateString(new Date()) }) {
     const get = (id) => document.querySelector(`#${id}`);
-    const state = { open: false, range: null, latest: null, field: "squat", data: null, error: "", goals: {}, goalError: "" };
-    const cards = {};
+    const state = { open: false, range: null, latest: null, field: "squat", data: null, error: "", goals: {}, goalError: "",
+      achievementMode: "4w", allTime: null };
+    const cards = {}, achievementCards = {};
     const node = (tag, text, className) => {
       const item = document.createElement(tag);
       if (text !== undefined) item.textContent = text;
@@ -90,6 +91,19 @@
       plot.append(svg);
     }
 
+    function renderAchievements() {
+      for (const mode of ["4w", "all"]) get(`summary-achievement-${mode}`).setAttribute("aria-pressed", String(state.achievementMode === mode));
+      const result = !state.data || state.goalError ? null : state.achievementMode === "all" ? state.allTime : model.weeklyAchievements(state.data.weeks, state.goals);
+      for (const { field } of model.METRICS) {
+        const card = achievementCards[field], metric = result?.metrics[field];
+        card.element.dataset.level = metric?.status === "ready" ? metric.level : "unavailable";
+        const symbols = { perfect: "★", high: "◎", half: "○", some: "△", zero: "—" };
+        card.symbol.textContent = metric?.status === "ready" ? symbols[metric.level] : "—";
+        card.count.textContent = metric?.status === "ready" ? `${metric.achievedWeeks}/${result.totalWeeks}週` : "—";
+        card.rate.textContent = !metric ? "確認不可" : metric.status === "unset" ? "目標未設定" : metric.status === "no-weeks" ? "未集計" : `${metric.rate}%`;
+      }
+    }
+
     function render() {
       if (state.range) get("summary-range").textContent = rangeText(state.range);
       get("summary-saved-days").textContent = state.data ? `(${state.data.current.savedDays}/28)` : "(—/28)";
@@ -118,6 +132,7 @@
         card.change.textContent = progress.status === "unset" ? "目標未設定" : progress.status === "no-data" ? "達成率 判定不可" : `達成率 ${progress.rate}%`;
       }
       renderPlot();
+      renderAchievements();
     }
     function refresh() {
       if (!state.open) return;
@@ -126,8 +141,10 @@
         const latest = model.latestPeriod(today());
         if (!state.range || state.range.end === state.latest?.end || state.range.end > latest.end) state.range = latest;
         state.latest = latest;
-        state.data = model.buildSummary(history.read(storage.getItem(KEY)), state.range); state.error = "";
-      } catch (error) { state.data = null; state.error = error.message || "保存データを読み取れません。保存内容は変更していません。"; }
+        const records = history.read(storage.getItem(KEY));
+        state.data = model.buildSummary(records, state.range);
+        state.allTime = model.allTimeAchievements(records, latest, state.goals); state.error = "";
+      } catch (error) { state.data = null; state.allTime = null; state.error = error.message || "保存データを読み取れません。保存内容は変更していません。"; }
       render();
     }
     function scrollToHeading() {
@@ -161,6 +178,18 @@
     get("summary-latest").addEventListener("click", () => {
       if (!state.open) return;
       changePeriod(null);
+    });
+    for (const metric of model.METRICS) {
+      const element = node("div", undefined, "summary-weekly-card"); element.dataset.field = metric.field;
+      const heading = node("div", undefined, "summary-weekly-row"), label = node("span", metric.label.replace(/(合計|平均)$/, ""), "summary-weekly-label");
+      const symbol = node("span", "", "summary-weekly-symbol"); symbol.setAttribute("aria-hidden", "true");
+      heading.append(label, symbol);
+      const row = node("div", undefined, "summary-weekly-row"), count = node("span", "", "summary-weekly-count"), rate = node("span", "", "summary-weekly-rate");
+      row.append(count, rate); element.append(heading, row); get("summary-achievement-cards").append(element);
+      achievementCards[metric.field] = { element, symbol, count, rate };
+    }
+    for (const mode of ["4w", "all"]) get(`summary-achievement-${mode}`).addEventListener("click", () => {
+      state.achievementMode = mode; renderAchievements();
     });
     navigation.connectPeriodSwipe({ element: get("summary-screen"), window, enabled: () => state.open && !state.error,
       move: (direction) => get(direction < 0 ? "summary-previous" : "summary-next").click() });

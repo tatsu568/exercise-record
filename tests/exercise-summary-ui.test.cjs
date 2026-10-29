@@ -21,6 +21,86 @@ const card = (a, field) => a.get("summary-cards").children.find(item => item.dat
 const value = (a, field) => card(a, field).children[1].children[0];
 const text = (element) => [element.textContent, ...element.children.map(text)].join(element.className === "summary-card-value" ? "" : " ");
 const weeks = (a) => a.get("summary-plot").children[0].children.filter(item => item.attrs?.class === "summary-week");
+const achievement = (a, field) => a.get("summary-achievement-cards").children.find(item => item.dataset.field === field);
+
+test("six compact achievement cards show names and symbols then counts and rates, and toggling leaves the graph and storage alone", () => {
+  const a = app({
+    "2041-04-15": { squat: 10, march: 1, plank: 30, standing: 10, walkSteps: "100", distance: "1" },
+    "2041-04-22": { squat: 10, march: 1, plank: 30, standing: 10, walkSteps: "0", distance: "0" },
+    "2041-04-29": { squat: 10, march: 1, plank: 0, standing: 0 }, "2041-05-06": { squat: 10 }
+  }, { squat: 10, march: 1, plank: 30, standing: 11, walkSteps: 100 });
+  const before = a.store.raw, extras = JSON.stringify([...a.store.extras]); a.openSummary();
+  const items = a.get("summary-achievement-cards").children;
+  assert.deepEqual(Array.from(items, item => item.dataset.field), ["squat", "march", "plank", "standing", "walkSteps", "distance"]);
+  for (const [field, label, symbol, count, rate, level] of [
+    ["squat", "スクワット", "★", "4/4週", "100%", "perfect"], ["march", "足踏み", "◎", "3/4週", "75%", "high"],
+    ["plank", "プランク", "○", "2/4週", "50%", "half"], ["standing", "スタンディング", "—", "0/4週", "0%", "zero"],
+    ["walkSteps", "散歩歩数", "△", "1/4週", "25%", "some"], ["distance", "散歩距離", "—", "—", "目標未設定", "unavailable"]
+  ]) {
+    const item = achievement(a, field);
+    assert.equal(item.children.length, 2); assert.equal(item.dataset.level, level);
+    assert.deepEqual(Array.from(item.children[0].children, e => e.textContent), [label, symbol]);
+    assert.deepEqual(Array.from(item.children[1].children, e => e.textContent), [count, rate]);
+  }
+  const graph = JSON.stringify(a.get("summary-plot").children), state = a.summary.getState(), scrolls = a.scrolls.length;
+  a.get("summary-achievement-all").click();
+  assert.equal(a.get("summary-achievement-all").attrs["aria-pressed"], "true");
+  assert.equal(a.get("summary-achievement-4w").attrs["aria-pressed"], "false");
+  assert.equal(JSON.stringify(a.get("summary-plot").children), graph); assert.deepEqual(a.summary.getState(), state); assert.equal(a.scrolls.length, scrolls);
+  assert.equal(a.store.raw, before); assert.equal(JSON.stringify([...a.store.extras]), extras); assert.equal(a.store.writes, 0); assert.equal(a.store.ackWrites, 0);
+});
+
+test("four-week achievements follow buttons and swipes while all-time stays independent and returns to the chosen period", () => {
+  const a = app(records(), { squat: 10 }), before = a.store.raw; a.openSummary();
+  const result = () => text(achievement(a, "squat"));
+  assert.match(result(), /1\/4週 25%/);
+  a.get("summary-previous").click(); assert.match(result(), /0\/4週 0%/);
+  a.get("summary-next").click(); assert.match(result(), /1\/4週 25%/);
+  a.get("summary-achievement-all").click(); assert.match(result(), /1\/8週 13%/);
+  a.get("summary-previous").click(); assert.match(result(), /1\/8週 13%/);
+  a.get("summary-achievement-4w").click(); assert.match(result(), /0\/4週 0%/);
+  a.get("summary-latest").click(); assert.match(result(), /1\/4週 25%/);
+  const screen = a.get("summary-screen");
+  screen.fire("touchstart", { touches: [{ clientX: 100, clientY: 180 }] });
+  screen.fire("touchend", { touches: [], changedTouches: [{ clientX: 220, clientY: 183 }] });
+  assert.match(result(), /0\/4週 0%/);
+  screen.fire("touchstart", { touches: [{ clientX: 250, clientY: 180 }] });
+  screen.fire("touchend", { touches: [], changedTouches: [{ clientX: 130, clientY: 183 }] });
+  assert.match(result(), /1\/4週 25%/);
+  assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
+});
+
+test("current goals and record changes refresh historical achievements and errors clear stale ratings without writes", () => {
+  const settingsModel = require("../app-settings.js"), a = app(records(), { squat: 5 }), before = a.store.raw;
+  a.openSummary(); a.get("summary-achievement-all").click(); assert.match(text(achievement(a, "squat")), /2\/8週 25%/);
+  a.store.extras.set(settingsModel.KEYS.exerciseGoals, JSON.stringify({ schemaVersion: 1, values: { ...settingsModel.DEFAULTS.exerciseGoals, squat: 10 } }));
+  a.emit("storage", { key: settingsModel.KEYS.exerciseGoals }); assert.match(text(achievement(a, "squat")), /1\/8週 13%/);
+  a.store.raw = JSON.stringify({ "2041-04-15": { squat: 10 } }); a.emit("storage", { key: "exercise-record.entries.v1" });
+  assert.match(text(achievement(a, "squat")), /1\/4週 25%/);
+  a.store.raw = "{broken"; a.emit("focus"); assert.match(text(achievement(a, "squat")), /確認不可/);
+  assert.equal(achievement(a, "squat").dataset.level, "unavailable");
+  a.store.raw = before; a.store.extras.set(settingsModel.KEYS.exerciseGoals, "{broken"); a.emit("focus");
+  assert.match(text(achievement(a, "squat")), /確認不可/);
+  assert.equal(a.store.writes, 0); assert.equal(a.store.ackWrites, 0);
+});
+
+test("all-time without a full recorded week is unaggregated while an empty four-week period has zero achieved weeks", () => {
+  for (const data of [{}, { "2041-05-12": { squat: 10 } }]) {
+    const a = app(data, { squat: 10 }); a.openSummary(); a.get("summary-achievement-all").click();
+    assert.match(text(achievement(a, "squat")), /未集計/); assert.doesNotMatch(text(achievement(a, "squat")), /0%/);
+    assert.equal(achievement(a, "squat").dataset.level, "unavailable");
+  }
+  const a = app({}, { squat: 10 }); a.openSummary(); assert.match(text(achievement(a, "squat")), /0\/4週 0%/);
+});
+
+test("achievement section follows the graph, uses two-column rows and accessible colors, with rules in the existing details", () => {
+  const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8"), css = fs.readFileSync(path.join(__dirname, "../style.css"), "utf8");
+  assert.match(html, /id="summary-plot"[\s\S]*?id="summary-achievement-heading">目標達成状況[\s\S]*?id="summary-achievement-cards" class="summary-cards"[\s\S]*?class="summary-notes"/);
+  assert.match(css, /\.summary-cards\s*\{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(css, /\.summary-weekly-row\s*\{[^}]*display: flex;[^}]*justify-content: space-between/);
+  for (const color of ["#2563eb", "#23865a", "#ad5e18", "#936d00"]) assert.ok(css.includes(`--achievement-color: ${color}`));
+  assert.match(html, /記録のない週も対象に含み、未達成/); assert.match(html, /記号は丸め前の達成週率で判定/);
+});
 
 test("summary swipes move one completed four-week period through existing controls without touching stored data", () => {
   const a = app(records(), { squat: 5 }), before = a.store.raw; a.openSummary();
@@ -139,7 +219,7 @@ test("aggregation and chart notes stay below the graph and explain the header da
   const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
   const section = html.slice(html.indexOf('<section id="summary-screen"'), html.indexOf('<section id="settings-screen"'));
   assert.match(section, /class="summary-period-heading">\s*<p id="summary-range"[^>]*><\/p>\s*<p id="summary-saved-days"><\/p>\s*<\/div>\s*<div class="summary-period-actions"/);
-  assert.match(section, /id="summary-cards"[\s\S]*?id="summary-plot"[^>]*><\/div>\s*<\/section>\s*<div class="summary-notes">\s*<p id="summary-aggregation-note"/);
+  assert.match(section, /id="summary-cards"[\s\S]*?id="summary-plot"[^>]*><\/div>[\s\S]*?id="summary-achievement-cards"[^>]*><\/div>\s*<\/section>\s*<div class="summary-notes">\s*<p id="summary-aggregation-note"/);
   assert.match(section, /項目横の\(7\/28\)は、運動5項目では実施日数、スタンディングでは平均対象日数です。未記録と0は区別します。/);
   assert.match(section, /散歩はアプリに記録した分だけが対象です。<\/p>\s*<details class="summary-details">\s*<summary>集計について詳しく<\/summary>/);
   assert.match(section, /保存された有効値だけを集計し、空欄・欠落・不正値は除外/);
