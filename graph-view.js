@@ -259,7 +259,7 @@
         const item = node("dl"); item.append(node("dt", label + "："), node("dd", value)); summary.append(item);
       }
       const svg = svgNode("svg", { viewBox: `0 0 ${width} ${top + height + bottom}`, width, height: top + height + bottom,
-        role: "img", tabindex: "0", "aria-label": `${TITLES[field]}。測定${data.points.length}件。${state.showMovingAverage ? "細線と点は実測値、太線は4週間移動平均です。" : "実測値を表示しています。"}点をタップ、または下の共通の前の測定・次の測定で選択できます。` });
+        role: "img", tabindex: "0", "aria-label": `${TITLES[field]}。測定${data.points.length}件。${state.showMovingAverage ? "点付きの線は実測値、細い補助線は4週間移動平均です。" : "実測値を表示しています。"}点をタップ、または下の共通の前の測定・次の測定で選択できます。` });
       if (data.targetBand.collapsed) svg.append(svgNode("line", { x1: left, x2: left + plotWidth, y1: top + data.targetBand.top, y2: top + data.targetBand.top, class: "graph-target-band" }));
       else svg.append(svgNode("rect", { x: left, y: top + data.targetBand.top, width: plotWidth, height: data.targetBand.height, class: "graph-target-band" }));
       for (const tick of data.yAxis.ticks) {

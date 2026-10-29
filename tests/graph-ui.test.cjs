@@ -110,6 +110,7 @@ test("moving average defaults on for both graphs and toggles without changing pe
   assert.equal(a.get("graph-moving-average").checked, true);
   for (const field of ["weight", "bodyFat"]) {
     const paths = byClass(svg(a, field), "graph-moving-average"); assert.equal(paths.length, 1);
+    assert.match(svg(a, field).attrs["aria-label"], /点付きの線は実測値、細い補助線は4週間移動平均/);
     assert.equal(paths[0].attrs["pointer-events"], "none"); assert.equal(paths[0].attrs["aria-hidden"], "true");
     assert.match(paths[0].attrs.d, /^M .* C /);
   }
