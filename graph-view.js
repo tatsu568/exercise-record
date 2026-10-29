@@ -24,7 +24,7 @@
   const TITLES = { weight: "体重", bodyFat: "体脂肪率" };
   const INITIAL_TARGETS = Object.freeze({ weight: Object.freeze({ min: 56, max: 56.9 }), bodyFat: Object.freeze({ min: 16, max: 16.9 }) });
   const dateText = (date) => { const { year, month, day } = model.parseDate(date); return `${year}/${month}/${day}`; };
-  const axisText = (value) => value !== 0 && (value >= 100000 || value < 0.01) ? value.toExponential(1) : String(value);
+  const axisText = (value) => value !== 0 && (value >= 100000 || value < 0.01) ? value.toExponential(1) : value.toFixed(1);
 
   // Hit-testing is separate from SVG event handling. Coordinates are plot-local.
   function nearestPoint(points, x, y, radius = 24) {
@@ -242,7 +242,7 @@
       const averages = state.showMovingAverage ? model.movingAverageSegments(state.measurements[field], state.range) : [];
       const extraValues = averages.flatMap((segment) => segment.map((point) => point.value));
       // Existing total span: 1.2 times; 25% margins make it 1.5 times (25% wider).
-      const axisOptions = { extraValues, padding: .25 };
+      const axisOptions = { extraValues, padding: .25, tickStep: .5, tickCount: 13 };
       const axis = model.calculateYAxis(visible, targets[field], axisOptions);
       const left = Math.max(38, Math.min(90, Math.max(...axis.ticks.map((tick) => axisText(tick.value).length)) * 6 + 10));
       const plotWidth = Math.max(1, width - left - right);
@@ -273,9 +273,11 @@
       const dateTicks = svgNode("g", {}); svg.append(dateTicks);
       if (data.points.length > 1) svg.append(svgNode("polyline", { points: data.points.map((point) => `${left + point.x},${top + point.y}`).join(" "), class: "graph-measurement-line" }));
       for (const segment of averages) {
-        if (segment.length < 2) continue;
         const points = segment.map((point) => ({ x: left + model.calculateX(point.date, state.range, plotWidth), y: top + model.calculateY(point.value, data.yAxis, height) }));
-        svg.append(svgNode("path", { d: averagePath(points), class: "graph-moving-average", "pointer-events": "none", "aria-hidden": "true" }));
+        const attributes = { class: "graph-moving-average", "pointer-events": "none", "aria-hidden": "true" };
+        svg.append(points.length === 1
+          ? svgNode("circle", { ...attributes, cx: points[0].x, cy: points[0].y, r: 2 })
+          : svgNode("path", { ...attributes, d: averagePath(points) }));
       }
       for (const point of data.points) {
         const circle = svgNode("circle", { cx: left + point.x, cy: top + point.y, r: 3, class: "graph-point" });

@@ -25,8 +25,8 @@ test("moving averages independently exclude missing empty zero and invalid measu
     "2041-01-02": day({ weight: "0", bodyFat: "20" }), "2041-01-03": day({ weight: "", bodyFat: "bad" }),
     "2041-01-04": day({ weight: "70" }), "2041-01-05": day({ weight: "NaN", bodyFat: 30 }) }));
   const bounds = { start: "2041-01-01", end: "2041-01-28" };
-  assert.deepEqual(graph.movingAverageSegments(data.weight, bounds).flat().map(p => [p.date, p.value, p.count]), [["2041-01-04", 60, 2]]);
-  assert.deepEqual(graph.movingAverageSegments(data.bodyFat, bounds).flat().map(p => [p.date, p.value, p.count]), [["2041-01-02", 15, 2]]);
+  assert.deepEqual(graph.movingAverageSegments(data.weight, bounds).flat().map(p => [p.date, p.value, p.count]), [["2041-01-01", 50, 1], ["2041-01-04", 60, 2]]);
+  assert.deepEqual(graph.movingAverageSegments(data.bodyFat, bounds).flat().map(p => [p.date, p.value, p.count]), [["2041-01-01", 10, 1], ["2041-01-02", 15, 2]]);
   assert.deepEqual(graph.movingAverageSegments([], bounds), []); assert.deepEqual(graph.movingAverageSegments(data.weight, null), []);
 });
 
@@ -34,8 +34,9 @@ test("insufficient windows split average segments across long gaps and leap-day 
   const data = series([["2041-01-01", "50"], ["2041-01-02", "52"], ["2041-01-03", "54"],
     ["2041-03-01", "60"], ["2041-03-02", "62"], ["2041-03-03", "64"]]);
   const segments = graph.movingAverageSegments(data, { start: "2041-01-01", end: "2041-03-03" });
-  assert.deepEqual(segments.map(segment => segment.map(p => p.date)), [["2041-01-02", "2041-01-03"], ["2041-03-02", "2041-03-03"]]);
-  assert.deepEqual(graph.movingAverageSegments(data.slice(0, 1), { start: "2041-01-01", end: "2041-03-03" }), []);
+  assert.deepEqual(segments.map(segment => segment.map(p => p.date)), [["2041-01-01", "2041-01-02", "2041-01-03"], ["2041-03-01", "2041-03-02", "2041-03-03"]]);
+  const single = graph.movingAverageSegments(data.slice(0, 1), { start: "2041-01-01", end: "2041-03-03" });
+  assert.equal(single.length, 1); assert.equal(single[0].length, 1); assert.equal(single[0][0].value, 50);
   const leap = graph.movingAverageSegments(series([["2040-02-01", "100"], ["2040-02-02", "10"], ["2040-02-29", "30"], ["2040-03-01", "50"]]), { start: "2040-02-29", end: "2040-03-01" });
   assert.deepEqual(leap[0].map(p => [p.value, p.count]), [[20, 2], [40, 2]]);
 });
@@ -49,7 +50,34 @@ test("average-supported axes contain earlier outlying values while actual summar
   assert.deepEqual(chart.points.map(p => p.raw), ["60", "50"]);
   for (const value of extraValues) assert.ok(graph.calculateY(value, chart.yAxis, 180) >= 0);
   const extreme = graph.movingAverageSegments(series([["2041-01-01", String(Number.MAX_VALUE)], ["2041-01-02", String(Number.MAX_VALUE)]]), { start: "2041-01-01", end: "2041-01-02" });
-  assert.equal(extreme[0][0].value, Number.MAX_VALUE);
+  assert.equal(extreme[0][0].value, Number.MAX_VALUE); assert.equal(extreme[0][1].value, Number.MAX_VALUE);
+});
+
+test("initial averages connect the first reading to the next 28-day average and restart only after calendar gaps", () => {
+  const data = freeze(series([["2041-06-20", "57.3"], ["2041-06-27", "57.1"], ["2041-07-25", "58"], ["2041-07-26", "56"]]));
+  const segments = graph.movingAverageSegments(data, { start: "2041-06-20", end: "2041-07-26" });
+  assert.deepEqual(segments.map(s => s.map(p => [p.date, p.count])), [[['2041-06-20', 1], ['2041-06-27', 2]], [['2041-07-25', 1], ['2041-07-26', 2]]]);
+  assert.equal(segments[0][0].value, 57.3); assert.ok(Math.abs(segments[0][1].value - 57.2) < 1e-12);
+  assert.deepEqual(segments[1].map(p => p.value), [58, 57]);
+  const clipped = graph.movingAverageSegments(data, { start: "2041-06-27", end: "2041-06-27" });
+  assert.equal(clipped[0][0].count, 2); assert.ok(Math.abs(clipped[0][0].value - 57.2) < 1e-12);
+});
+
+test("half-unit ticks stay inside the unchanged automatic bounds and thin safely for wide or extreme ranges", () => {
+  for (const goals of [target, { min: 15.5, max: 17.5 }, { min: 45, max: 100 }, { min: Number.MIN_VALUE, max: Number.MAX_VALUE }]) {
+    const original = graph.calculateYAxis([], goals, { padding: .25 });
+    const axis = graph.calculateYAxis([], goals, { padding: .25, tickStep: .5, tickCount: 13 });
+    assert.equal(axis.min, original.min); assert.equal(axis.max, original.max);
+    assert.ok(axis.ticks.length >= 1 && axis.ticks.length <= 13);
+    assert.ok(axis.ticks.every(tick => Number.isFinite(tick.value) && tick.value >= axis.min && tick.value <= axis.max));
+    if (goals.max < 20 || goals === target) {
+      assert.equal(axis.step, .5);
+      const expected = [];
+      for (let value = Math.ceil(axis.min * 2) / 2; value <= axis.max; value += .5) expected.push(value);
+      assert.deepEqual(axis.ticks.map(tick => tick.value), expected);
+    } else assert.ok(axis.step > .5);
+  }
+  for (const tickStep of [0, -1, NaN, Infinity]) assert.throws(() => graph.calculateYAxis([], target, { tickStep }));
 });
 
 for (const [left, right, expected] of [["56", "56.00", 0], ["44.999999999999999999", "45", -1],

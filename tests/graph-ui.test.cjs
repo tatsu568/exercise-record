@@ -149,7 +149,7 @@ test("body axes widen 25 percent around their original centers and map actual an
       const visible = model.filterMeasurements(measurements[field], range);
       const extraValues = model.movingAverageSegments(measurements[field], range).flat().map(p => p.value);
       const original = model.calculateYAxis(visible, targets[field], { extraValues });
-      const expanded = model.calculateYAxis(visible, targets[field], { extraValues, padding: .25 });
+      const expanded = model.calculateYAxis(visible, targets[field], { extraValues, padding: .25, tickStep: .5, tickCount: 13 });
       assert.ok(Math.abs((expanded.max - expanded.min) / (original.max - original.min) - 1.25) < 1e-9);
       assert.ok(Math.abs((expanded.max + expanded.min) - (original.max + original.min)) < 1e-9);
       points(a, field).forEach((point, index) => assert.ok(Math.abs(Number(point.attrs.cy) - (12 + model.calculateY(visible[index].value, expanded, 180))) < 1e-9));
@@ -163,16 +163,44 @@ test("body axes widen 25 percent around their original centers and map actual an
   }
 });
 
-test("average curves use pre-display samples but do not connect single averages across unsupported gaps", () => {
+test("average curves use pre-display samples and keep isolated points separate across long gaps", () => {
   const a = app({ "2041-01-01": day({ weight: "140" }), "2041-01-27": day({ weight: "60" }), "2041-01-28": day({ weight: "50" }),
     "2041-03-01": day({ weight: "61" }), "2041-03-02": day({ weight: "62" }), "2041-03-03": day({ weight: "63" }) });
   a.open(); custom(a, "2041-01-27", "2041-01-28"); assert.equal(byClass(svg(a), "graph-moving-average").length, 1);
   assert.equal(points(a).length, 2); assert.match(text(a.get("graph-weight-summary")), /60kg.*50kg.*−10kg/);
-  custom(a, "2041-01-28", "2041-03-02"); assert.equal(byClass(svg(a), "graph-moving-average").length, 0);
+  custom(a, "2041-01-28", "2041-03-02");
+  assert.deepEqual(byClass(svg(a), "graph-moving-average").map(item => item.tag), ["circle", "path"]);
   custom(a, "2041-01-01", "2041-03-03"); assert.equal(byClass(svg(a), "graph-moving-average").length, 2);
   assert.equal(byClass(a.get("graph-bodyFat-plot"), "graph-moving-average").length, 0);
-  custom(a, "2041-03-01", "2041-03-01"); assert.equal(byClass(svg(a), "graph-moving-average").length, 0);
+  custom(a, "2041-03-01", "2041-03-01");
+  assert.deepEqual(byClass(svg(a), "graph-moving-average").map(item => item.tag), ["circle"]);
   assert.equal(a.store.writes, 0);
+});
+
+test("half-unit labels and first average endpoints retain scale, selection and read-only operation", () => {
+  const a = app({ "2041-06-20": day({ weight: "57.3", bodyFat: "16.3" }), "2041-06-27": day({ weight: "57.1", bodyFat: "16.1" }) }), before = a.store.raw;
+  a.open();
+  for (const field of ["weight", "bodyFat"]) {
+    const plot = svg(a, field), path = byClass(plot, "graph-moving-average")[0];
+    assert.equal(path.tag, "path");
+    const coordinates = path.attrs.d.match(/[-+]?(?:\d*\.?\d+)(?:e[-+]?\d+)?/gi).map(Number), first = points(a, field)[0];
+    assert.deepEqual(coordinates.slice(0, 2), [Number(first.attrs.cx), Number(first.attrs.cy)]);
+    assert.equal(coordinates.at(-2), Number(points(a, field)[1].attrs.cx));
+    assert.ok(Math.abs(coordinates.at(-1) - (Number(first.attrs.cy) + Number(points(a, field)[1].attrs.cy)) / 2) < 1e-9);
+    const labels = byClass(plot, "graph-axis-label").filter(item => !(item.attrs.class || "").includes("graph-date-label")).map(item => item.textContent);
+    assert.ok(labels.length >= 2 && labels.length <= 13);
+    labels.forEach((label, index) => { assert.match(label, /^\d+\.[05]$/); if (index) assert.equal(Number(label) - Number(labels[index - 1]), .5); });
+  }
+  select(a, "weight", 0); assert.equal(a.graphView.getState().selectedDate, "2041-06-20");
+  a.get("graph-moving-average").checked = false; a.get("graph-moving-average").fire("change");
+  assert.equal(byClass(svg(a), "graph-moving-average").length, 0);
+  assert.equal(a.graphView.getState().selectedDate, "2041-06-20");
+  a.get("graph-moving-average").checked = true; a.get("graph-moving-average").fire("change");
+  custom(a, "2041-06-27", "2041-06-27");
+  const average = byClass(svg(a), "graph-moving-average")[0];
+  assert.equal(average.tag, "circle"); assert.equal(average.attrs["pointer-events"], "none");
+  assert.notEqual(average.attrs.cy, points(a)[0].attrs.cy);
+  assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0); assert.equal(a.store.ackWrites, 0);
 });
 
 test("smooth average Bezier controls remain between endpoint values and inside the existing plot", () => {

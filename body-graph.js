@@ -188,7 +188,7 @@
   }
 
   // Trailing 28 calendar days, at measured dates only. A one-sample window
-  // breaks the curve; earlier saved measurements still support visible dates.
+  // starts a new segment; never bridge 28+ day gaps between measurements.
   function movingAverageSegments(points, range) {
     const sorted = orderedPoints(points), segments = [];
     if (range === null) return segments;
@@ -201,11 +201,10 @@
       while (sorted[first].day < point.day - 27) first++;
       if (point.date < range.start) continue;
       const count = index - first + 1;
-      if (count < 2) { segment = null; continue; }
       // At most 28 daily samples. Incremental averaging avoids sum overflow.
       let value = sorted[first].value;
       for (let sample = first + 1; sample <= index; sample++) value += (sorted[sample].value - value) / (sample - first + 1);
-      if (!segment) { segment = []; segments.push(segment); }
+      if (!segment || count === 1) { segment = []; segments.push(segment); }
       segment.push({ date: point.date, day: point.day, field: point.field, value, count });
     }
     return segments;
@@ -261,9 +260,10 @@
     if (target.min > target.max) throw new RangeError("目標下限は上限以下にしてください");
   }
 
-  function calculateYAxis(points, target, { padding = 0.1, minSpan = 1, tickCount = 5, extraValues = [] } = {}) {
+  function calculateYAxis(points, target, { padding = 0.1, minSpan = 1, tickCount = 5, extraValues = [], tickStep = null } = {}) {
     validateTarget(target); dimension(minSpan);
     if (!Number.isFinite(padding) || padding < 0 || padding > 1 || !Number.isInteger(tickCount) || tickCount < 2 || tickCount > 20) throw new RangeError("縦軸オプションが不正です");
+    if (tickStep !== null) dimension(tickStep);
     let low = target.min, high = target.max;
     for (const point of orderedPoints(points)) { low = Math.min(low, point.value); high = Math.max(high, point.value); }
     if (!Array.isArray(extraValues) || extraValues.some((value) => typeof value !== "number" || !Number.isFinite(value) || value <= 0)) throw new RangeError("補助線の値は正の有限数です");
@@ -277,6 +277,11 @@
     const ratio = desired / power;
     let step = [1, 2, 2.5, 5, 10].find((value) => value >= ratio) * power;
     if (!Number.isFinite(step) || step <= 0) step = desired || max - min;
+    if (tickStep !== null) {
+      const first = Math.ceil(min / tickStep), last = Math.floor(max / tickStep);
+      // Prefer the requested interval only while labels fit and indices are exact.
+      if (Number.isSafeInteger(first) && Number.isSafeInteger(last) && last >= first && last - first + 1 <= tickCount) step = tickStep;
+    }
     const first = Math.ceil(min / step), ticks = [];
     // Integer tick indices avoid accumulated addition error and unbounded loops.
     for (let index = first; ticks.length < 32; index++) {
