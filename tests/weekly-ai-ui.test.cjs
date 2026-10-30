@@ -49,6 +49,23 @@ test("AI errors and canceled previews never save; conflicts default to keep and 
   preview(a, "2041-01-14\t70"); a.get("ai-cancel").click(); assert.equal(a.get("ai-save").disabled, true); assert.equal(a.store.aiWrites, 1);
 });
 
+test("average toggles measure the attached chart and replace it without a transient empty plot", () => {
+  const a = app({ "2041-01-07": { score: 70, comment: "first" }, "2041-01-14": { score: 80, comment: "second" } });
+  a.get("summary-show").click();
+  const plot = a.get("ai-plot"), originalBounds = plot.getBoundingClientRect.bind(plot), week = a.get("ai-selected-week").textContent;
+  const score = a.get("ai-selected-score").textContent, comment = a.get("ai-selected-comment").textContent, scrolls = a.scrolls.length;
+  const before = a.store.extras.get(model.KEY); let measurements = 0;
+  for (const checked of [false, true]) {
+    const previousChart = plot.children[0];
+    plot.getBoundingClientRect = () => { assert.equal(plot.children[0], previousChart); measurements++; return originalBounds(); };
+    a.get("ai-moving-average").checked = checked; a.get("ai-moving-average").fire("change");
+    assert.notEqual(plot.children[0], previousChart); assert.equal(paths(a).length, checked ? 1 : 0);
+    assert.equal(a.get("ai-selected-week").textContent, week); assert.equal(a.get("ai-selected-score").textContent, score);
+    assert.equal(a.get("ai-selected-comment").textContent, comment); assert.equal(a.scrolls.length, scrolls);
+  }
+  assert.equal(measurements, 2); assert.equal(a.store.extras.get(model.KEY), before); assert.equal(a.store.aiWrites, 0); assert.equal(a.store.writes, 0);
+});
+
 test("previous and next evaluations scroll to the AI heading after selection renders, while point taps and unavailable moves do not", () => {
   const values = { "2041-01-07": { score: 70, comment: "first" }, "2041-01-14": { score: 80, comment: "second" } };
   const a = app(values), before = a.store.extras.get(model.KEY), headingScrolls = [];

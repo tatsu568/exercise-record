@@ -22,9 +22,9 @@
     const dateText = date => { const p = calendar.parseDate(date); return `${p.year}/${p.month}/${p.day}`; };
     function status(text, error = false) { get("ai-import-status").textContent = text; get("ai-import-status").dataset.error = String(error); }
     function renderPlot() {
-      const plot = get("ai-plot"); plot.replaceChildren(); get("ai-average-legend").hidden = !state.showAverage;
+      const plot = get("ai-plot"); get("ai-average-legend").hidden = !state.showAverage;
       const data = model.chartData(state.evaluations);
-      if (!data.points.length || state.error) { plot.append(node("p", state.error || "評価はまだ登録されていません。")); return; }
+      if (!data.points.length || state.error) { plot.replaceChildren(node("p", state.error || "評価はまだ登録されていません。")); return; }
       const width = Math.max(240, plot.getBoundingClientRect?.().width || (document.documentElement?.clientWidth || 375) - 58), left = 38, top = 18, height = 154;
       const range = { start: data.points[0].date, end: data.points.at(-1).date }, values = data.points.map(p => p.value);
       const low = Math.min(...values), high = Math.max(...values), margin = Math.max(10, high - low) * .1 + Math.max(0, 10 - (high - low)) / 2;
@@ -40,14 +40,14 @@
       if (state.showAverage) for (const segment of data.averageSegments) if (segment.length > 1) svg.append(svgNode("path", { d: graph.averagePath(segment.map(xy)), class: "ai-average-line", "pointer-events": "none", "aria-hidden": "true" }));
       for (const p of data.points) {
         const q = xy(p), selected = state.selected === p.date;
-        svg.append(svgNode("circle", { cx: q.x, cy: q.y, r: selected ? 5 : 3.5, class: selected ? "ai-score-point ai-score-selected" : "ai-score-point", "pointer-events": "none" }));
+        svg.append(svgNode("circle", { cx: q.x, cy: q.y, r: selected ? 5 : 3.5, class: selected ? "graph-selection ai-score-point ai-score-selected" : "graph-point ai-score-point", "pointer-events": "none" }));
         const hit = svgNode("circle", { cx: q.x, cy: q.y, r: 12, fill: "transparent", tabindex: 0, role: "button", "aria-label": `${dateText(p.date)}、${p.value}/100点`, "aria-pressed": selected });
         hit.dataset.aiDate = p.date; svg.append(hit);
       }
       for (const tick of calendar.makeXTicks(range, width - left - 12, { maxTicks: 4, minLabelSpacing: 75 })) {
         svg.append(svgNode("text", { x: left + tick.x, y: 195, "text-anchor": "middle", class: "graph-axis-label" }, tick.label));
       }
-      plot.append(svg);
+      plot.replaceChildren(svg);
     }
     function render() {
       const dates = Object.keys(state.evaluations).sort(), index = dates.indexOf(state.selected), item = state.evaluations[state.selected];
