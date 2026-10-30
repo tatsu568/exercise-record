@@ -216,6 +216,7 @@ button { touch-action: manipulation; }
 .ai-week { margin: 4px 0; font-size: 13px; }
 #ai-selected-score { font-size: 21px; font-variant-numeric: tabular-nums; }
 .ai-comment { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
+#ai-selected-comment { min-height: 4.8em; }
 .ai-details > summary { cursor: pointer; font-weight: 650; }
 #ai-paste { display: block; width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 9px; font: inherit; font-size: 16px; }
 #ai-preview { max-height: 420px; overflow-y: auto; }
