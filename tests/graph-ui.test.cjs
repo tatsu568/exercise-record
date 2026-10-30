@@ -53,11 +53,12 @@ function app(records = fixture(), options = {}) {
   const get = (id) => { assert.ok(elements.has(id), id); return elements.get(id); };
   const extras = new Map(Object.entries(options.extras || {}));
   const store = { raw: typeof records === "string" || records === null ? records : JSON.stringify(records), writes: 0, failWrite: false, failRead: false,
-    extras, ackWrites: 0, failAckRead: false, failAckWrite: false, failAckVerify: false,
+    extras, aiWrites: 0, ackWrites: 0, failAckRead: false, failAckWrite: false, failAckVerify: false,
     getItem(key) { if (key === acknowledgements.KEY) { if (this.failAckRead || (this.failAckVerify && this.ackWrites)) throw Error("ack read"); return extras.get(key) ?? null; }
-      if (Object.values(appSettings.KEYS).includes(key)) return extras.get(key) ?? null;
+      if (key === transfer.AI_KEY || Object.values(appSettings.KEYS).includes(key)) return extras.get(key) ?? null;
       assert.equal(key, "exercise-record.entries.v1"); if (this.failRead) throw Error("read failed"); return this.raw; },
-    setItem(key, value) { if (key === acknowledgements.KEY) { if (this.failAckWrite) throw Error("ack quota"); this.ackWrites++; extras.set(key, value); return; }
+    setItem(key, value) { if (key === transfer.AI_KEY) { if (this.failAIWrite) throw Error("ai quota"); this.aiWrites++; extras.set(key, value); return; }
+      if (key === acknowledgements.KEY) { if (this.failAckWrite) throw Error("ack quota"); this.ackWrites++; extras.set(key, value); return; }
       assert.equal(key, "exercise-record.entries.v1"); if (this.failWrite) throw Error("quota"); this.writes++; this.raw = value; },
     clear() { assert.fail("no clear"); }, removeItem() { assert.fail("no remove"); } };
   const window = { isSecureContext: true, confirm: () => true, scrollY: 0,

@@ -11,6 +11,19 @@
     walkMinutes: "", walkSeconds: "", distance: "", walkSteps: "",
     weight: "", bodyFat: "", basal: ""
   });
+  const AI_KEY = "exercise-record.weekly-ai-evaluations.v1";
+  function validateEvaluations(values) {
+    if (!isObject(values) || Object.keys(values).length > 10000) fail("AI評価は10000週以内の日付別データが必要です");
+    for (const [date, entry] of Object.entries(values)) {
+      if (!isRealDateKey(date) || new Date(date + "T12:00:00Z").getUTCDay() !== 1
+        || new Date(Date.parse(date + "T12:00:00Z") + 6 * 86400000).getUTCFullYear() > 9999) fail("対象週は実在する月曜日（週末も9999年以内）で指定してください");
+      if (!isObject(entry) || Object.keys(entry).some(key => !["score", "comment"].includes(key))
+        || !Number.isInteger(entry.score) || entry.score < 0 || entry.score > 100) fail("評価点数は0〜100の整数で指定してください");
+      if (typeof entry.comment !== "string" || entry.comment.length > 10000) fail("総評は10000文字以内の文字列で指定してください");
+    }
+    return values;
+  }
+  function readEvaluations(raw) { return validateEvaluations(raw === null ? {} : parseJson(raw)); }
   const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
   const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
   const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -125,11 +138,13 @@
   function parseBackup(text) {
     const backup = parseJson(text);
     if (!isObject(backup) || backup.format !== "exercise-record-backup") fail("対応するJSONバックアップではありません");
-    if (backup.formatVersion !== 1) fail("対応していないバックアップ形式バージョンです");
-    if (Object.keys(backup).some((key) => !["format", "formatVersion", "exportedAt", "records"].includes(key))) fail("未知のバックアップ最上位項目があります。対応版で確認してください");
+    if (![1, 2].includes(backup.formatVersion)) fail("対応していないバックアップ形式バージョンです");
+    const keys = ["format", "formatVersion", "exportedAt", "records", ...(backup.formatVersion === 2 ? ["weeklyAI"] : [])];
+    if (Object.keys(backup).some((key) => !keys.includes(key))) fail("未知のバックアップ最上位項目があります。対応版で確認してください");
     if (typeof backup.exportedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(backup.exportedAt)
       || !Number.isFinite(Date.parse(backup.exportedAt)) || new Date(backup.exportedAt).toISOString() !== backup.exportedAt) fail("バックアップ作成日時が不正です");
     validateRecordsMap(backup.records, { strictValues: true });
+    if (backup.formatVersion === 2) validateEvaluations(backup.weeklyAI);
     return { ...backup, warnings: recordWarnings(backup.records) };
   }
 
@@ -184,6 +199,14 @@
     validateRecordsMap(records, { strictValues: true });
     return { records, counts };
   }
+  function createEvaluationPlan(raw, incoming) {
+    readEvaluations(raw); validateEvaluations(incoming);
+    return createPlan(raw, incoming);
+  }
+  function buildEvaluationCandidate(plan, choices = {}) {
+    validateEvaluations(plan.existing); validateEvaluations(plan.incoming);
+    const result = buildCandidate(plan, choices); validateEvaluations(result.records); return result;
+  }
 
   async function commitRecords(storage, key, plan, choices, confirmation, { store } = {}) {
     if (confirmation?.backupConfirmed !== true || confirmation?.finalConfirmed !== true) fail("復元前バックアップと最終確認が必要です", "CONFIRMATION");
@@ -191,5 +214,6 @@
     return store.commitImport(plan, choices, confirmation);
   }
 
-  return Object.freeze({ DEFAULT_ENTRY, validateRecordsMap, parseBackup, readSnapshot, createPlan, buildCandidate, commitRecords, differences });
+  return Object.freeze({ DEFAULT_ENTRY, AI_KEY, validateEvaluations, readEvaluations, parseJson, validateRecordsMap, parseBackup, readSnapshot,
+    createPlan, buildCandidate, createEvaluationPlan, buildEvaluationCandidate, commitRecords, differences });
 });

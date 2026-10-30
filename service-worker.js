@@ -1,13 +1,13 @@
 "use strict";
 
-const CACHE_NAME = "exercise-record-v35";
+const CACHE_NAME = "exercise-record-v36";
 const APP_FILES = [
   "./", "./index.html", "./style.css?v=0.4-gear-optical-20261024-up2",
   "./record-save.js", "./record-transfer.js", "./numbers-csv.js", "./script.js",
   "./record-history.js?v=0.3-history-separators-20261021", "./body-graph.js",
   "./measurement-attention.js", "./attention-acknowledgements.js", "./app-navigation.js",
   "./history-view.js?v=0.3-history-separators-20261021", "./app-settings.js", "./settings-view.js",
-  "./graph-view.js", "./exercise-summary.js", "./exercise-summary-view.js",
+  "./graph-view.js", "./weekly-ai.js", "./weekly-ai-view.js", "./exercise-summary.js", "./exercise-summary-view.js",
   "./manifest.json", "./icons/icon.svg", "./icons/apple-touch-icon.png"
 ];
 

@@ -104,14 +104,73 @@
         throw failure("CONFIRMATION", "復元前バックアップと最終確認が必要です", "confirmation");
       }
       const frozenPlan = clone(plan), frozenChoices = clone(choices || {});
+      const evaluationChoices = clone(confirmation.evaluationChoices || {});
       return locked(() => {
         const snapshot = read(true);
         if (snapshot.raw !== frozenPlan.baselineRaw) throw failure("STALE", "現在の記録が変更されました。ファイルを選び直して再検証してください", "compare");
         let candidate;
         try { candidate = transfer.buildCandidate(frozenPlan, frozenChoices); }
         catch (cause) { throw failure("INVALID_CANDIDATE", "取り込み候補の形式を確認できません。保存を停止しました", "validate", "not-written", cause); }
+        if (frozenPlan.evaluations) {
+          const aiSnapshot = readAI();
+          if (aiSnapshot.raw !== frozenPlan.evaluations.baselineRaw) throw failure("STALE", "AI評価が変更されました。ファイルを選び直して再検証してください", "compare");
+          const aiCandidate = transfer.buildEvaluationCandidate(frozenPlan.evaluations, evaluationChoices);
+          const result = persistPair(snapshot, candidate, aiSnapshot, aiCandidate);
+          return { ...result, counts: candidate.counts, evaluationCounts: aiCandidate.counts };
+        }
         if (!candidate.counts.added && !candidate.counts.replaced) return { ...candidate, raw: snapshot.raw, outcome: "verified" };
         return { ...persist(snapshot, candidate.records, true), counts: candidate.counts };
+      }, options);
+    }
+    function readAI() {
+      try { const raw = storage.getItem(transfer.AI_KEY); return { raw, records: transfer.readEvaluations(raw) }; }
+      catch (cause) { throw failure("INVALID_AI_STORAGE", "保存済みAI評価を読み取れません。初期化せず停止しました", "read", "not-written", cause); }
+    }
+    function persistPair(snapshot, candidate, aiSnapshot, aiCandidate) {
+      transfer.validateRecordsMap(candidate.records, { strictValues: true }); transfer.validateEvaluations(aiCandidate.records);
+      const maps = [
+        { key, before: snapshot.raw, after: JSON.stringify(candidate.records), changed: candidate.counts.added + candidate.counts.replaced },
+        { key: transfer.AI_KEY, before: aiSnapshot.raw, after: JSON.stringify(aiCandidate.records), changed: aiCandidate.counts.added + aiCandidate.counts.replaced }
+      ];
+      if (maps.some(item => storage.getItem(item.key) !== item.before)) throw failure("STALE", "保存内容が変わりました。再検証してください", "check");
+      const attempted = [];
+      try {
+        for (const item of maps.filter(item => item.changed)) { attempted.push(item); storage.setItem(item.key, item.after); }
+        for (const item of maps) if (storage.getItem(item.key) !== (item.changed ? item.after : item.before)) throw new Error("readback mismatch");
+      } catch (cause) {
+        try {
+          let rollbackError;
+          for (const item of attempted.reverse()) {
+            try {
+              const current = storage.getItem(item.key);
+              if (current === item.before) continue;
+              if (current !== item.after) throw new Error("保存中に別の変更が検出されました");
+              if (item.before === null) storage.removeItem(item.key); else storage.setItem(item.key, item.before);
+            } catch (error) { rollbackError = error; }
+          }
+          if (rollbackError) throw rollbackError;
+          if (maps.some(item => storage.getItem(item.key) !== item.before)) throw new Error("rollback mismatch");
+        } catch (rollbackError) { throw failure("VERIFY_FAILED", "復元結果を確認できません。自動再実行せず、事前バックアップを保管し保存内容を確認してください", "verify", "unknown", rollbackError); }
+        throw failure("RESTORE_FAILED", "復元に失敗し、保存内容を変更前へ戻しました。再検証してください", "write", "not-written", cause);
+      }
+      return { records: clone(candidate.records), raw: candidate.counts.added + candidate.counts.replaced ? maps[0].after : snapshot.raw, outcome: "verified" };
+    }
+    async function commitEvaluations(plan, choices, confirmation, options) {
+      if (confirmation?.finalConfirmed !== true) throw failure("CONFIRMATION", "AI評価の保存内容を確認してください", "confirmation");
+      const frozenPlan = clone(plan), frozenChoices = clone(choices || {}), overwrite = confirmation.overwriteConfirmed === true;
+      return locked(() => {
+        const snapshot = readAI();
+        if (snapshot.raw !== frozenPlan.baselineRaw) throw failure("STALE", "AI評価が変更されました。再度プレビューしてください", "compare");
+        const candidate = transfer.buildEvaluationCandidate(frozenPlan, frozenChoices);
+        if (candidate.counts.replaced && !overwrite) throw failure("CONFIRMATION", "上書き対象の週と内容を確認してください", "confirmation");
+        if (!candidate.counts.added && !candidate.counts.replaced) return { ...candidate, outcome: "verified" };
+        if (storage.getItem(transfer.AI_KEY) !== snapshot.raw) throw failure("STALE", "AI評価が変更されました。再検証してください", "check");
+        const raw = JSON.stringify(candidate.records);
+        try { storage.setItem(transfer.AI_KEY, raw); }
+        catch (cause) { throw failure("WRITE_FAILED", "AI評価を保存できませんでした。既存評価は変更していません", "write", "not-written", cause); }
+        try { if (storage.getItem(transfer.AI_KEY) !== raw) throw new Error("mismatch"); transfer.readEvaluations(raw); }
+        catch (cause) { throw failure("VERIFY_FAILED", "AI評価の保存結果を確認できません。自動再実行せず、保存内容を確認してください", "verify", "unknown", cause); }
+        return { ...candidate, outcome: "verified" };
       }, options);
     }
     async function deleteDay({ date, expectedRaw, confirmed }, options) {
@@ -134,7 +193,7 @@
         return { ...persist(snapshot, records, false), date };
       }, options);
     }
-    return Object.freeze({ key, storage, supported, saveDay, commitImport, deleteDay, cancelPending });
+    return Object.freeze({ key, storage, supported, saveDay, commitImport, commitEvaluations, deleteDay, cancelPending });
   }
   return Object.freeze({ KEY, LOCK_NAME, createStore });
 });

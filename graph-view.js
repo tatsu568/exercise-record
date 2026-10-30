@@ -420,5 +420,5 @@
     return Object.freeze({ open: () => navigation.show("graph"), refresh,
       getState: () => ({ mode: state.mode, anchor: state.anchor, offset: state.offset, range: state.range && { ...state.range }, selectedDate: state.selectedDate, error: state.error }) });
   }
-  return Object.freeze({ mount, nearestPoint });
+  return Object.freeze({ mount, nearestPoint, averagePath });
 });

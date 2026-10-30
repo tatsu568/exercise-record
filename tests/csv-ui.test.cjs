@@ -48,7 +48,7 @@ function app(records = {}) {
   }
   const get = (selector) => { assert(elements.has(selector), selector); return elements.get(selector); };
   const store = { raw: JSON.stringify(records), writes: 0, fail: false,
-    getItem() { return this.raw; }, setItem(_key, value) { this.writes++; if (this.fail) throw Error("quota"); this.raw = value; }, removeItem() { assert.fail("must not remove records"); } };
+    getItem(key) { return key === transfer.AI_KEY ? null : this.raw; }, setItem(_key, value) { this.writes++; if (this.fail) throw Error("quota"); this.raw = value; }, removeItem() { assert.fail("must not remove records"); } };
   const navigator = { locks: createLocks(), canShare: () => true, share: async (data) => { shared.push(data); }, clipboard: { write: async (value) => clipboard.push(value), writeText: async (value) => clipboard.push(value) } };
   const window = { isSecureContext: true, confirm: () => true, addEventListener(name, fn) { listeners[name] = fn; }, requestAnimationFrame(fn) { frames.push(fn); } };
   const document = { querySelector: get, querySelectorAll: (selector) => selector === "[data-work]" ? work : selector === "[data-step]" ? steps : [], createElement(tag) { const node = new Element(tag); created.push(node); return node; }, body: { append() {} }, activeElement: null };

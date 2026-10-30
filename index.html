@@ -105,7 +105,7 @@
         <button id="restore-start" class="button backup-button" type="button">バックアップ復元</button>
         </div>
         <button id="csv-start" class="button backup-button csv-start" type="button">Numbers CSV取り込み</button>
-        <p class="backup-note">この保存領域にある全日付の記録をJSONファイルに書き出します。</p>
+        <p class="backup-note">この保存領域の全日付の記録と週間AI評価をJSONファイルに書き出します。</p>
         <p class="backup-note">復元は内容を確認してから反映します。Safariとホーム画面版では保存領域が異なる場合があります。</p>
         <input id="restore-file" type="file" accept=".json,application/json" aria-label="復元するJSONバックアップ" hidden>
         <input id="csv-file" type="file" accept=".csv,text/csv" aria-label="取り込むNumbers CSV" hidden>
@@ -142,6 +142,7 @@
             <ul id="restore-warnings" class="restore-warnings"></ul>
             <p class="restore-help">競合は「既存を維持」が初期選択です。置換すると、その日付全体を空欄も含めて置き換え、既存値が消えることがあります。値の補完・自動マージは行いません。文字列は引用符付き、空欄は "" で表示します。</p>
             <div id="restore-conflicts"></div>
+            <div id="restore-ai-preview"></div>
             <p id="restore-totals" class="restore-summary"></p>
             <p id="restore-no-changes" class="restore-help" hidden>反映する変更はありません。「閉じる・キャンセル」で通常入力に戻れます。</p>
             <button id="restore-prebackup" class="button backup-button" type="button">① 復元前バックアップを保存</button>
@@ -292,10 +293,10 @@
         <div id="summary-achievement-cards" class="summary-cards" aria-live="polite"></div>
       </section>
       <div class="summary-notes">
-        <p id="summary-aggregation-note" class="summary-note">項目横の(7/28)は、運動5項目では実施日数、スタンディングでは平均対象日数です。未記録と0は区別します。</p>
-        <p class="summary-note">保存済みの記録だけを集計します。目標は現在の設定値を過去の期間にも適用します。散歩はアプリに記録した分だけが対象です。</p>
         <details class="summary-details">
           <summary>集計について詳しく</summary>
+          <p id="summary-aggregation-note" class="summary-note">項目横の(7/28)は、運動5項目では実施日数、スタンディングでは平均対象日数です。未記録と0は区別します。</p>
+          <p class="summary-note">保存済みの記録だけを集計します。目標は現在の設定値を過去の期間にも適用します。散歩はアプリに記録した分だけが対象です。</p>
           <p class="summary-note">保存された有効値だけを集計し、空欄・欠落・不正値は除外します。期間横の(○/28)は保存済み記録日数、運動5項目は0より大きい実績の実施日数です。保存された0は有効値ですが、実施日数には含めません。</p>
           <p class="summary-note">スタンディングは有効記録日の平均で、項目横の日数は平均対象日数です。保存済みの初期値10Hが平均に含まれる場合があり、実際の活動時間を保証するものではありません。</p>
           <p id="summary-graph-note" class="summary-note">各週は月曜〜日曜です。データなしは棒を表示せず、保存された0は基準線と「0」で表示します。平均・平均との差は小数第2位まで表示します。</p>
@@ -304,6 +305,36 @@
           <p class="summary-note">記号は丸め前の達成週率で判定します。★：100%、◎：75%以上100%未満、○：50%以上75%未満、△：0%超50%未満、—：0%です。目標未設定・対象週なしの場合は評価しません。</p>
         </details>
       </div>
+      <section id="weekly-ai" aria-labelledby="ai-heading">
+        <h3 id="ai-heading">週間AI評価</h3>
+        <p id="ai-status" class="history-help" role="status"></p>
+        <section class="card" aria-label="週間評価点数のグラフ">
+          <div class="graph-legend"><span><i class="ai-score-swatch"></i>評価点数</span><span id="ai-average-legend"><i class="ai-average-swatch"></i>4週間移動平均</span></div>
+          <div id="ai-plot" class="graph-plot"></div>
+        </section>
+        <section class="card" aria-labelledby="ai-selected-heading">
+          <h4 id="ai-selected-heading">選択中の評価</h4>
+          <p id="ai-selected-week" class="ai-week"></p><strong id="ai-selected-score"></strong>
+          <p id="ai-selected-comment" class="ai-comment"></p>
+          <div class="graph-point-actions"><button id="ai-previous" class="date-step" type="button" disabled>前の評価</button><button id="ai-next" class="date-step" type="button" disabled>次の評価</button></div>
+          <label class="graph-average-toggle"><input id="ai-moving-average" type="checkbox" checked>4週間移動平均</label>
+        </section>
+        <details class="card ai-details">
+          <summary>評価データを取り込む</summary>
+          <p class="summary-note">月曜日の日付・点数（0〜100の整数）・総評（任意）をタブ区切りで貼り付けてください。1行でも複数行でも取り込めます。プレビューでは保存しません。</p>
+          <label for="ai-paste">評価データ</label><textarea id="ai-paste" rows="5" spellcheck="false"></textarea>
+          <button id="ai-preview-button" class="button backup-button" type="button">プレビュー</button>
+          <ul id="ai-errors" class="restore-warnings"></ul><div id="ai-preview"></div>
+          <p id="ai-totals" class="restore-summary"></p>
+          <label class="restore-confirm"><input id="ai-confirm" type="checkbox"><span>保存予定件数と、選択した週の上書き内容を確認しました</span></label>
+          <div class="graph-point-actions"><button id="ai-cancel" class="date-step" type="button">プレビューを取り消す</button><button id="ai-save" class="date-step" type="button" disabled>確認して保存</button></div>
+          <p id="ai-import-status" class="history-help" role="status" aria-live="polite"></p>
+        </details>
+        <details class="card ai-details">
+          <summary>ChatGPTへの依頼文</summary><pre id="ai-prompt" tabindex="0"></pre>
+          <button id="ai-copy-prompt" class="button backup-button" type="button">コピー</button><p id="ai-copy-status" class="history-help" role="status"></p>
+        </details>
+      </section>
     </section>
     <section id="settings-screen" aria-labelledby="settings-heading" hidden>
       <div class="settings-header"><h2 id="settings-heading" tabindex="-1">設定</h2><button id="settings-back" class="date-step" type="button">戻る</button></div>
@@ -362,6 +393,7 @@
   <script src="script.js" defer></script>
   <script src="record-history.js?v=0.3-history-separators-20261021" defer></script>
   <script src="body-graph.js" defer></script>
+  <script src="weekly-ai.js" defer></script>
   <script src="measurement-attention.js" defer></script>
   <script src="attention-acknowledgements.js" defer></script>
   <script src="app-navigation.js" defer></script>
@@ -369,6 +401,7 @@
   <script src="app-settings.js" defer></script>
   <script src="settings-view.js" defer></script>
   <script src="graph-view.js" defer></script>
+  <script src="weekly-ai-view.js" defer></script>
   <script src="exercise-summary.js" defer></script>
   <script src="exercise-summary-view.js" defer></script>
 </body>

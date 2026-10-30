@@ -24,7 +24,7 @@
   // Delay access to the browser's storage property so denied access is caught
   // by the same read/write error paths as getItem/setItem failures.
   const recordStorage = { getItem(key) { return localStorage.getItem(key); },
-    setItem(key, value) { return localStorage.setItem(key, value); } };
+    setItem(key, value) { return localStorage.setItem(key, value); }, removeItem(key) { return localStorage.removeItem(key); } };
   let recordLocks;
   try { recordLocks = navigator.locks; } catch { recordLocks = undefined; }
   const recordStore = RecordSave.createStore({ storage: recordStorage, transfer: RecordTransfer,
@@ -246,12 +246,16 @@
       return false;
     }
     try {
+      const recordsRaw = localStorage.getItem(STORAGE_KEY);
       const records = readBackupRecords();
+      const aiRaw = localStorage.getItem(RecordTransfer.AI_KEY), weeklyAI = RecordTransfer.readEvaluations(aiRaw);
+      if (localStorage.getItem(RecordTransfer.AI_KEY) !== aiRaw) throw new Error("AI評価が変更されました。バックアップをやり直してください");
+      if (localStorage.getItem(STORAGE_KEY) !== recordsRaw) throw new Error("記録が変更されました。バックアップをやり直してください");
       const backup = {
         format: "exercise-record-backup",
-        formatVersion: 1,
+        formatVersion: 2,
         exportedAt: new Date().toISOString(),
-        records
+        records, weeklyAI
       };
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8" });
       const filename = `運動記録バックアップ_${localDateString()}.json`;
@@ -350,7 +354,8 @@
       if (token !== restoreToken) return;
       const backup = RecordTransfer.parseBackup(text);
       const plan = RecordTransfer.createPlan(localStorage.getItem(STORAGE_KEY), backup.records);
-      restoreSession = { plan, backup, choices: {}, stale: false, backupPrepared: false };
+      if (backup.formatVersion === 2) plan.evaluations = RecordTransfer.createEvaluationPlan(localStorage.getItem(RecordTransfer.AI_KEY), backup.weeklyAI);
+      restoreSession = { plan, backup, choices: {}, evaluationChoices: {}, stale: false, backupPrepared: false };
       renderRestorePreview();
     } catch (error) {
       if (token !== restoreToken) return;
@@ -626,6 +631,24 @@
       label.append(select); card.append(details, label); list.append(card);
     }
     document.querySelector("#restore-preview").hidden = false;
+    const aiPreview = document.querySelector("#restore-ai-preview"); aiPreview.replaceChildren();
+    if (plan.evaluations) {
+      aiPreview.append(restoreNode("h4", "週間AI評価の復元（既存維持が初期選択）"));
+      for (const row of plan.evaluations.rows) {
+        const card = restoreNode("div", undefined, "restore-conflict"), incoming = plan.evaluations.incoming[row.date];
+        card.append(restoreNode("p", `${row.date}：${row.kind === "new" ? "新規" : row.kind === "same" ? "一致" : "重複"}／${incoming.score}/100点`), restoreNode("p", incoming.comment || "総評：登録なし", "ai-comment"));
+        if (row.kind === "conflict") {
+          const existing = plan.evaluations.existing[row.date];
+          card.append(restoreNode("p", `既存：${existing.score}/100点`), restoreNode("p", existing.comment || "総評：登録なし", "ai-comment"));
+          const label = restoreNode("label", `${row.date} の復元方法`), select = document.createElement("select");
+          for (const [value, text] of [["keep", "既存を維持"], ["replace", "この週をバックアップで上書き"]]) { const option = restoreNode("option", text); option.value = value; select.append(option); }
+          select.value = restoreSession.evaluationChoices[row.date] || "keep";
+          select.addEventListener("change", () => { if (restoreSession?.applying || restoreSession?.stale) return; restoreSession.evaluationChoices[row.date] = select.value; document.querySelector("#restore-final-confirm").checked = false; updateRestoreTotals(); });
+          label.append(select); card.append(label);
+        }
+        aiPreview.append(card);
+      }
+    } else if (!csv) aiPreview.append(restoreNode("p", "旧バックアップに週間AI評価は含まれません。現在のAI評価は変更しません。", "restore-help"));
     document.querySelector("#restore-prebackup").disabled = Boolean(restoreSession.backupInProgress);
     setRestoreMessage("まだ保存内容は変更していません。相違内容と件数を確認してください。復元中は通常入力を一時停止しています。");
     updateRestoreTotals();
@@ -635,13 +658,18 @@
     if (restoreSession?.applying) { document.querySelector("#restore-apply").disabled = true; return; }
     if (!restoreSession?.plan) return;
     const { counts } = RecordTransfer.buildCandidate(restoreSession.plan, restoreSession.choices);
-    const summary = `追加${counts.added}件・置換${counts.replaced}件・スキップ${counts.skipped}件（うち一致${counts.same}件）／保存日数${counts.before}→${counts.after}日`;
+    const aiCounts = restoreSession.plan.evaluations ? RecordTransfer.buildEvaluationCandidate(restoreSession.plan.evaluations, restoreSession.evaluationChoices).counts : null;
+    const aiChanges = aiCounts ? aiCounts.added + aiCounts.replaced : 0;
+    const summary = `追加${counts.added}件・置換${counts.replaced}件・スキップ${counts.skipped}件（うち一致${counts.same}件）／保存日数${counts.before}→${counts.after}日${aiCounts ? `／AI評価：追加${aiCounts.added}週・上書き${aiCounts.replaced}週・維持${aiCounts.skipped}週` : ""}`;
     document.querySelector("#restore-totals").textContent = summary;
     document.querySelector("#restore-final-label").textContent = `${summary}を確認しました`;
     const canApply = !restoreSession.stale && restoreSession.backupPrepared && document.querySelector("#restore-backup-confirm").checked
-      && document.querySelector("#restore-final-confirm").checked && counts.added + counts.replaced > 0;
+      && document.querySelector("#restore-final-confirm").checked && counts.added + counts.replaced + aiChanges > 0;
     document.querySelector("#restore-apply").disabled = !canApply;
-    document.querySelector("#restore-no-changes").hidden = counts.added + counts.replaced > 0;
+    document.querySelector("#restore-no-changes").hidden = counts.added + counts.replaced + aiChanges > 0;
+  }
+  function restoreUnchanged(session) {
+    return localStorage.getItem(STORAGE_KEY) === session.plan.baselineRaw && (!session.plan.evaluations || localStorage.getItem(RecordTransfer.AI_KEY) === session.plan.evaluations.baselineRaw);
   }
 
   async function prepareRestoreBackup() {
@@ -653,10 +681,10 @@
     document.querySelector("#restore-prebackup").disabled = true;
     updateRestoreTotals();
     try {
-      if (localStorage.getItem(STORAGE_KEY) !== session.plan.baselineRaw) throw new Error("現在の記録が変わりました。ファイルを選び直して再検証してください。");
+      if (!restoreUnchanged(session)) throw new Error("現在の記録・AI評価が変わりました。ファイルを選び直して再検証してください。");
       const started = await saveBackup();
       if (session !== restoreSession) return;
-      if (session.stale || localStorage.getItem(STORAGE_KEY) !== session.plan.baselineRaw) throw new Error("バックアップ中に現在の記録が変わりました。再検証してください。");
+      if (session.stale || !restoreUnchanged(session)) throw new Error("バックアップ中に現在の記録・AI評価が変わりました。再検証してください。");
       session.backupPrepared = started;
       document.querySelector("#restore-backup-confirm").disabled = !started;
       setRestoreMessage(started ? "保存操作を行いました。ファイルアプリ等でJSONが保存されたことを確認し、下の確認欄をチェックしてください。アプリから保存完了は確認できません。" : "バックアップ保存を完了していません。復元はまだ実行できません。", !started);
@@ -697,8 +725,9 @@
     const session = restoreSession;
     if (!session?.plan || session.applying || session.stale || !session.backupPrepared || !document.querySelector("#restore-backup-confirm").checked || !document.querySelector("#restore-final-confirm").checked) return;
     const { counts } = RecordTransfer.buildCandidate(session.plan, session.choices);
-    if (counts.added + counts.replaced === 0) return;
-    if (!window.confirm(`追加${counts.added}件・置換${counts.replaced}件を反映します。保存日数は${counts.before}→${counts.after}日です。復元前バックアップを保存・確認済みですか？`)) return;
+    const aiCounts = session.plan.evaluations ? RecordTransfer.buildEvaluationCandidate(session.plan.evaluations, session.evaluationChoices).counts : null;
+    if (counts.added + counts.replaced + (aiCounts ? aiCounts.added + aiCounts.replaced : 0) === 0) return;
+    if (!window.confirm(`追加${counts.added}件・置換${counts.replaced}件を反映します。保存日数は${counts.before}→${counts.after}日です。${aiCounts ? `AI評価は追加${aiCounts.added}週・上書き${aiCounts.replaced}週です。` : ""}復元前バックアップを保存・確認済みですか？`)) return;
     session.applying = true;
     document.querySelector("#restore-apply").disabled = true;
     document.querySelector("#restore-cancel").disabled = true;
@@ -709,9 +738,10 @@
     document.querySelectorAll("#restore-panel select").forEach((select) => { select.disabled = true; });
     setRestoreMessage("安全な保存の順番待ち・照合中です。画面を閉じずにお待ちください。");
     try {
-      const result = await RecordTransfer.commitRecords(recordStorage, STORAGE_KEY, session.plan, session.choices, { backupConfirmed: true, finalConfirmed: true }, { store: recordStore });
+      const result = await RecordTransfer.commitRecords(recordStorage, STORAGE_KEY, session.plan, session.choices, { backupConfirmed: true, finalConfirmed: true, evaluationChoices: session.evaluationChoices }, { store: recordStore });
       finishRestoreSession();
       setRestoreMessage(`${session.mode === "csv" ? "CSV取り込み" : "復元"}と読み戻し照合が完了しました。追加${result.counts.added}件・置換${result.counts.replaced}件・スキップ${result.counts.skipped}件（うち一致${result.counts.same}件）／合計${result.counts.after}日。`);
+      if (result.evaluationCounts) setRestoreMessage(document.querySelector("#restore-status").textContent + `AI評価：追加${result.evaluationCounts.added}週・上書き${result.evaluationCounts.replaced}週・維持${result.evaluationCounts.skipped}週。`);
     } catch (error) {
       invalidateRestore(error.message);
       if (error.code === "VERIFY_FAILED") {
@@ -725,6 +755,7 @@
   }
 
   function handleStorageChange(event) {
+    if (event.key === RecordTransfer.AI_KEY) { if (restoreSession?.plan?.evaluations) invalidateRestore("AI評価が変更されました。ファイルを選び直して再検証してください。"); return; }
     if (event.key !== STORAGE_KEY && event.key !== null) return;
     if (restoreSession) {
       if (restoreSession.plan || restoreSession.mode === "csv") invalidateRestore("別の画面で現在の記録が更新されました。閉じてファイルを選び直し、再検証してください。");

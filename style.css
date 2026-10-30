@@ -208,6 +208,27 @@ button { touch-action: manipulation; }
 .summary-weekly-card[data-level="high"] { --achievement-color: #23865a; }
 .summary-weekly-card[data-level="half"] { --achievement-color: #ad5e18; }
 .summary-weekly-card[data-level="some"] { --achievement-color: #936d00; }
+#weekly-ai { min-width: 0; margin-top: 12px; }
+#ai-heading { margin: 0 0 10px; font-size: 18px; }
+#weekly-ai h4 { margin: 0 0 8px; font-size: 16px; }
+#ai-status:empty, #ai-import-status:empty { display: none; }
+#ai-status, #ai-import-status[data-error="true"] { color: #9a3b17; }
+.ai-week { margin: 4px 0; font-size: 13px; }
+#ai-selected-score { font-size: 21px; font-variant-numeric: tabular-nums; }
+.ai-comment { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
+.ai-details > summary { cursor: pointer; font-weight: 650; }
+#ai-paste { display: block; width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 9px; font: inherit; font-size: 16px; }
+#ai-preview { max-height: 420px; overflow-y: auto; }
+#ai-preview label, #restore-ai-preview label { display: flex; flex-wrap: wrap; gap: 6px; font-size: 13px; }
+#ai-preview select, #restore-ai-preview select { max-width: 100%; min-height: 44px; }
+#ai-prompt { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13px; line-height: 1.6; }
+.ai-score-line { fill: none; stroke: #28674f; stroke-width: 2; }
+.ai-average-line { fill: none; stroke: #8064a2; stroke-width: 1.25; opacity: .75; }
+.ai-score-point { stroke: #28674f; stroke-width: 2; fill: white; }
+.ai-score-selected { fill: #28674f; stroke: var(--ink); }
+.ai-score-swatch, .ai-average-swatch { display: inline-block; width: 20px; vertical-align: middle; margin-right: 4px; border-top: 2px solid #28674f; }
+.ai-average-swatch { border-top: 1.25px solid #8064a2; opacity: .75; }
+#weekly-ai .graph-legend span::before { content: none; }
 #graph-screen[hidden], #graph-custom[hidden], .graph-summary[hidden], .graph-empty[hidden] { display: none; }
 #graph-screen, .graph-card, .graph-controls, .graph-plot { min-width: 0; }
 #graph-heading { margin: 0 0 10px; font-size: 19px; }
@@ -259,7 +280,7 @@ button { touch-action: manipulation; }
 .graph-selected { margin: 0 0 6px; padding: 8px; border-radius: 8px; background: var(--page); font-size: 14px; white-space: nowrap; overflow-x: auto; font-variant-numeric: tabular-nums; }
 .graph-selected:empty { display: none; }
 .graph-point-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-#graph-screen button:disabled { opacity: .45; }
+#graph-screen button:disabled, #ai-previous:disabled, #ai-next:disabled { opacity: .45; }
 .graph-attention-count { min-width: 0; margin: 0; color: #9a3b17; font-size: 13px; overflow-wrap: anywhere; }
 .graph-attention-count[data-empty="true"] { color: var(--muted); }
 .graph-attention-mark { fill: none; stroke: #ae4b19; stroke-width: 2; pointer-events: none; }

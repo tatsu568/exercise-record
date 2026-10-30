@@ -35,7 +35,7 @@ function app(records = {}, today = "2032-10-19", browserBoot = false, secureCont
   }
   const get = (selector) => { assert.ok(elements.has(selector), selector); return elements.get(selector); };
   const store = { raw: typeof records === "string" || records === null ? records : JSON.stringify(records), writes: 0, fail: false,
-    getItem(key) { assert.equal(key, "exercise-record.entries.v1"); return this.raw; },
+    getItem(key) { if (key === transfer.AI_KEY) return null; assert.equal(key, "exercise-record.entries.v1"); return this.raw; },
     setItem(key, value) { assert.equal(key, "exercise-record.entries.v1"); this.writes++; if (this.fail) throw Error("quota"); this.raw = value; },
     clear() { assert.fail("must not clear records"); }, removeItem() { assert.fail("must not remove records"); } };
   const window = { isSecureContext: secureContext, confirm: () => true, scrollY: 0,
@@ -614,7 +614,7 @@ test("an insecure HTTP context does not register the Service Worker", () => {
   }
 });
 
-test("v35 caches every app reference with fresh content, serves offline and replaces only older app caches", async () => {
+test("v36 caches every app reference with fresh content, serves offline and replaces only older app caches", async () => {
   const origin = "https://example.test/exercise-record/", events = {}, saved = new Map(), deleted = [];
   const httpCache = new Map([[new URL("script.js", origin).href, "old public input script"]]);
   const downloads = [];
@@ -637,15 +637,15 @@ test("v35 caches every app reference with fresh content, serves offline and repl
       saved.set(url.href, { ok: true, body });
     }
   } };
-  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v35"); return cache; },
-    keys: async () => ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23", "exercise-record-v24", "exercise-record-v25", "exercise-record-v26", "exercise-record-v27", "exercise-record-v28", "exercise-record-v29", "exercise-record-v30", "exercise-record-v31", "exercise-record-v32", "exercise-record-v33", "exercise-record-v34", "exercise-record-v35", "other-cache"], delete: async (name) => { deleted.push(name); },
+  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v36"); return cache; },
+    keys: async () => ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23", "exercise-record-v24", "exercise-record-v25", "exercise-record-v26", "exercise-record-v27", "exercise-record-v28", "exercise-record-v29", "exercise-record-v30", "exercise-record-v31", "exercise-record-v32", "exercise-record-v33", "exercise-record-v34", "exercise-record-v35", "exercise-record-v36", "other-cache"], delete: async (name) => { deleted.push(name); },
     match: async (request) => saved.get(request.url) };
   const context = { self, caches, URL, Request: WorkerRequest, fetch: async () => { networkCalls++; throw Error("offline"); } };
   Object.defineProperty(context, "localStorage", { get() { assert.fail("Service Worker must not access records"); } });
   vm.runInNewContext(fs.readFileSync(path.join(root, "service-worker.js"), "utf8"), context);
   events.install({ waitUntil: (promise) => { pending = promise; } }); await pending;
   assert.equal(httpCache.get(new URL("script.js", origin).href), fs.readFileSync(path.join(root, "script.js"), "utf8"));
-  assert.equal(downloads.length, 21);
+  assert.equal(downloads.length, 23);
   const refs = [...html.matchAll(/<(?:script|link)\b[^>]*(?:src|href)="([^"]+)"/g)].map((match) => match[1]);
   refs.push("./", "index.html", ...JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8")).icons.map((icon) => icon.src));
   assert.deepEqual(new Set(downloads), new Set(refs.map((reference) => new URL(reference, origin).href)));
@@ -660,7 +660,7 @@ test("v35 caches every app reference with fresh content, serves offline and repl
   }
   assert.equal(networkCalls, 0);
   events.activate({ waitUntil: (promise) => { pending = promise; } }); await pending;
-  assert.deepEqual(deleted, ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23", "exercise-record-v24", "exercise-record-v25", "exercise-record-v26", "exercise-record-v27", "exercise-record-v28", "exercise-record-v29", "exercise-record-v30", "exercise-record-v31", "exercise-record-v32", "exercise-record-v33", "exercise-record-v34"]); assert(skipped && claimed);
+  assert.deepEqual(deleted, ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23", "exercise-record-v24", "exercise-record-v25", "exercise-record-v26", "exercise-record-v27", "exercise-record-v28", "exercise-record-v29", "exercise-record-v30", "exercise-record-v31", "exercise-record-v32", "exercise-record-v33", "exercise-record-v34", "exercise-record-v35"]); assert(skipped && claimed);
 });
 
 
@@ -792,12 +792,12 @@ test("monthly ASCII formatting does not alter detail warning punctuation or save
   assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
 });
 
-test("v35 matches the current HTML CSS URL and preserves the history asset identifiers", () => {
+test("v36 matches the current HTML CSS URL and preserves the history asset identifiers", () => {
   const version = "0.3-history-separators-20261021", worker = fs.readFileSync(path.join(root, "service-worker.js"), "utf8");
   for (const file of ["record-history.js", "history-view.js"]) {
     assert(html.includes(`${file}?v=${version}`)); assert(worker.includes(`./${file}?v=${version}`));
   }
   assert(html.includes("style.css?v=0.4-gear-optical-20261024-up2"));
   assert(worker.includes("./style.css?v=0.4-gear-optical-20261024-up2"));
-  assert(worker.includes('const CACHE_NAME = "exercise-record-v35"'));
+  assert(worker.includes('const CACHE_NAME = "exercise-record-v36"'));
 });

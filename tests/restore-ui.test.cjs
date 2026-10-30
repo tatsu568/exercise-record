@@ -45,9 +45,10 @@ function app(records = {}) {
   }
   const get = (selector) => { assert(elements.has(selector), "HTML is missing " + selector); return elements.get(selector); };
   const listeners = {};
-  const store = { raw: JSON.stringify(records), writes: 0, fail: false,
-    getItem() { return this.raw; }, setItem(_key, value) { this.writes++; if (this.fail) throw new Error("quota"); this.raw = value; },
-    removeItem() { assert.fail("must not delete storage"); }
+  const store = { raw: JSON.stringify(records), aiRaw: null, writes: 0, aiWrites: 0, fail: false,
+    getItem(key) { return key === transfer.AI_KEY ? this.aiRaw : this.raw; },
+    setItem(key, value) { if (key === transfer.AI_KEY) this.aiWrites++; else this.writes++; if (this.fail) throw new Error("quota"); if (key === transfer.AI_KEY) this.aiRaw = value; else this.raw = value; },
+    removeItem(key) { if (key === transfer.AI_KEY) this.aiRaw = null; else assert.fail("must not delete record storage"); }
   };
   const window = { isSecureContext: true, confirm: () => true, addEventListener(name, fn) { listeners[name] = fn; } };
   const navigator = { locks: createLocks(), canShare: () => true, share: async (data) => { shared.push(data); }, clipboard: { write: async (items) => clipboard.push(items), writeText: async (text) => clipboard.push(text) } };
@@ -77,6 +78,40 @@ test("file not selected, read failure, invalid JSON, and cancel do not change re
     instance.hooks.cancelRestore();
   }
   assert.equal(instance.store.raw, original); assert.equal(instance.store.writes, 0);
+});
+
+test("v2 export includes independently saved AI evaluations and v2 restore previews keep conflicts by default", async () => {
+  const instance = app({ "2041-01-01": day() }), original = instance.store.raw;
+  instance.store.aiRaw = JSON.stringify({ "2041-01-07": { score: 80, comment: "original" } });
+  await instance.get("#backup-export").click();
+  const exported = JSON.parse(await instance.shared.at(-1).files[0].text());
+  assert.equal(exported.formatVersion, 2); assert.deepEqual(exported.weeklyAI, JSON.parse(instance.store.aiRaw));
+  assert.equal(instance.store.writes, 0); assert.equal(instance.store.aiWrites, 0);
+  const file = { text: async () => JSON.stringify({ ...exported, records: {}, weeklyAI: { "2041-01-07": { score: 90, comment: "corrected" }, "2041-01-14": { score: 70, comment: "" } } }) };
+  await instance.hooks.previewBackup(file);
+  const choice = instance.created.filter(e => e.tag === "select").at(-1); assert.equal(choice.value, "keep");
+  assert.match(instance.get("#restore-totals").textContent, /AI評価：追加1週・上書き0週/);
+  assert.equal(instance.store.aiWrites, 0); await ready(instance); await instance.hooks.applyRestore();
+  assert.equal(instance.store.raw, original); assert.equal(instance.store.writes, 0);
+  assert.equal(JSON.parse(instance.store.aiRaw)["2041-01-07"].score, 80); assert.equal(instance.store.aiWrites, 1);
+  await instance.hooks.previewBackup(file);
+  const replace = instance.created.filter(e => e.tag === "select").at(-1); replace.value = "replace"; replace.events.change();
+  assert.equal(instance.get("#restore-final-confirm").checked, false); await ready(instance); await instance.hooks.applyRestore();
+  assert.equal(JSON.parse(instance.store.aiRaw)["2041-01-07"].score, 90); assert.equal(instance.store.raw, original);
+  const aiBefore = instance.store.aiRaw; await instance.hooks.previewBackup(backup({ "2041-01-02": day() }));
+  await ready(instance); await instance.hooks.applyRestore(); assert.equal(instance.store.aiRaw, aiBefore);
+});
+
+test("invalid AI backup rejects the entire file, and AI changes invalidate a prepared combined restore", async () => {
+  const instance = app({ "2041-01-01": day() }), raw = instance.store.raw;
+  const envelope = { format: "exercise-record-backup", formatVersion: 2, exportedAt: "2041-05-13T00:00:00.000Z", records: {}, weeklyAI: { "2041-01-07": { score: 101, comment: "" } } };
+  await instance.hooks.previewBackup({ text: async () => JSON.stringify(envelope) });
+  assert.match(instance.get("#restore-status").textContent, /エラー/); assert.equal(instance.store.writes, 0); instance.hooks.cancelRestore();
+  envelope.weeklyAI["2041-01-07"].score = 80;
+  await instance.hooks.previewBackup({ text: async () => JSON.stringify(envelope) }); await ready(instance);
+  instance.store.aiRaw = JSON.stringify({ "2041-01-07": { score: 90, comment: "external" } });
+  instance.listeners.storage({ key: transfer.AI_KEY }); await instance.hooks.applyRestore();
+  assert.equal(instance.get("#restore-apply").disabled, true); assert.equal(instance.store.writes, 0); assert.equal(instance.store.aiWrites, 0); assert.equal(instance.store.raw, raw);
 });
 
 test("preview defaults to keep; input and date navigation cannot autosave until cancel", async () => {
