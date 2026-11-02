@@ -104,7 +104,7 @@ test("verified history deletion updates graphs and summary on next display while
   const a = app({ "2041-04-15": day({ squat: 5, weight: "56", bodyFat: "16" }), "2041-05-05": day({ squat: 10, weight: "57" }) },
     { today: "2041-05-13", browserBoot: true, extras });
   const before = JSON.stringify([...a.store.extras]);
-  a.get("summary-show").click(); assert.match(text(a.get("summary-cards")), /15/);
+  a.get("summary-show").click(); a.get("summary-card-4w").click(); assert.match(text(a.get("summary-cards")), /15/);
   a.get("summary-achievement-all").click(); assert.match(text(a.get("summary-achievement-cards")), /2\/4週/);
   a.open(); assert.equal(points(a).length, 2);
   a.get("history-show").click(); a.get("history-month-prev").click();

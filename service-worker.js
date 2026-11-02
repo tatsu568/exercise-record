@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "exercise-record-v38";
+const CACHE_NAME = "exercise-record-v39";
 const APP_FILES = [
   "./", "./index.html", "./style.css?v=0.4-gear-optical-20261024-up2",
   "./record-save.js", "./record-transfer.js", "./numbers-csv.js", "./script.js",

@@ -14,11 +14,66 @@ function app(data = records(), goals = {}) {
   const settingsModel = require("../app-settings.js");
   const a = context.module.exports.app(data, { today: "2041-05-13", extras: { [settingsModel.KEYS.exerciseGoals]: JSON.stringify({ schemaVersion: 1, values: { ...settingsModel.DEFAULTS.exerciseGoals, ...goals } }) } });
   a.summary = view.mount({ document: a.document, window: a.window, storage: a.store, navigation: a.nav, today: () => a.now.value });
-  a.openSummary = () => a.get("summary-show").click();
+  // Existing regression cases continue to exercise the unchanged four-week mode.
+  a.openSummary = () => { a.get("summary-show").click(); a.get("summary-card-4w").click(); };
   return a;
 }
 const card = (a, field) => a.get("summary-cards").children.find(item => item.dataset.field === field);
 const value = (a, field) => card(a, field).children[1].children[0];
+
+test("cards default to the last completed week and reuse six aggregates and one weekly goal without changing the four-week graph", () => {
+  const a = app({
+    "2026-10-19": day({ squat: 100 }),
+    "2026-10-26": day({ squat: 10, march: 1, plank: 60, standing: 10, walkSteps: "1000", distance: "0.1" }),
+    "2026-10-27": day({ standing: 20 }),
+    "2026-11-01": day({ squat: 5, march: 2, plank: 30, standing: 15, walkSteps: "2000", distance: "0.2" }),
+    "2026-11-02": day({ squat: 100 })
+  }, { squat: 10, march: 4, plank: 90, standing: 15, walkSteps: 2000, distance: .3 });
+  const before = a.store.raw; a.now.value = "2026-11-02"; a.get("summary-show").click();
+  assert.equal(a.get("summary-card-week").attrs["aria-pressed"], "true");
+  assert.equal(a.get("summary-range").textContent, "2026/10/26(月)〜11/1(日)");
+  assert.equal(a.get("summary-saved-days").textContent, "(3/7)");
+  assert.equal(a.get("summary-period-actions").hidden, true); assert.equal(a.get("summary-comparison-range").hidden, true);
+  for (const [field, actual, difference, rate] of [["squat", "15回", "目標+5", "150%"], ["march", "3回", "目標−1", "75%"],
+    ["plank", "90秒", "目標±0", "100%"], ["standing", "15H", "目標±0", "100%"], ["walkSteps", "3,000歩", "目標+1,000", "150%"], ["distance", "0.3km", "目標±0", "100%"]]) {
+    const item = card(a, field); assert.equal(text(value(a, field)), actual); assert.equal(item.children[1].children[1].textContent, difference);
+    assert.equal(item.children[2].textContent, `達成率 ${rate}`); assert.equal(item.children[0].children[1].textContent, `(${field === "standing" ? 3 : 2}/7)`);
+  }
+  assert.equal(a.get("summary-chart-range").textContent, "4週間：2026/10/5(月)〜11/1(日)");
+  assert.deepEqual(Array.from(weeks(a), item => item.attrs["data-value"]), ["", "", "100", "15"]);
+  assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0);
+});
+
+test("last-week dates follow local weekdays and year boundaries, while missing, zero and invalid values remain distinct", () => {
+  const a = app({ "2026-10-26": { squat: 0, standing: 10 }, "2026-10-27": { squat: 3, march: 1 } }, { squat: 10, plank: 30 });
+  a.now.value = "2026-11-02"; a.get("summary-show").click();
+  assert.equal(text(value(a, "squat")), "0回"); assert.equal(card(a, "squat").children[0].children[1].textContent, "(0/7)");
+  assert.equal(card(a, "squat").children[2].textContent, "達成率 0%"); assert.equal(text(value(a, "plank")), "データなし");
+  assert.equal(card(a, "plank").children[2].textContent, "達成率 判定不可"); assert.match(a.get("summary-status").textContent, /今回1項目/);
+  for (const [today, expected] of [["2026-11-01", "2026/10/19(月)〜10/25(日)"], ["2026-11-02", "2026/10/26(月)〜11/1(日)"],
+    ["2026-11-03", "2026/10/26(月)〜11/1(日)"], ["2027-01-01", "2026/12/21(月)〜12/27(日)"], ["2027-01-04", "2026/12/28(月)〜2027/1/3(日)"]]) {
+    a.now.value = today; a.emit("focus"); assert.equal(a.get("summary-range").textContent, expected);
+  }
+  assert.equal(a.store.writes, 0);
+});
+
+test("card mode switches preserve the selected four-week range, graph and achievements without scrolling or writing", () => {
+  const a = app(records(), { squat: 10 }), before = a.store.raw, extras = JSON.stringify([...a.store.extras]);
+  a.openSummary(); a.get("summary-previous").click(); card(a, "standing").click(); a.get("summary-achievement-all").click();
+  const range = a.get("summary-range").textContent, state = a.summary.getState(), plot = a.get("summary-plot").children[0];
+  const achieved = JSON.stringify(a.get("summary-achievement-cards").children), scrolls = a.scrolls.length;
+  a.get("summary-card-week").click();
+  assert.equal(a.get("summary-range").textContent, "2041/5/6(月)〜5/12(日)");
+  a.get("summary-previous").fire("click"); a.get("summary-latest").fire("click");
+  const screen = a.get("summary-screen"), touch = x => ({ clientX: x, clientY: 100 });
+  screen.fire("touchstart", { touches: [touch(100)] }); screen.fire("touchend", { touches: [], changedTouches: [touch(220)] });
+  a.get("summary-card-4w").click();
+  assert.equal(a.get("summary-range").textContent, range); assert.equal(a.get("summary-period-actions").hidden, false);
+  assert.equal(a.get("summary-comparison-range").hidden, false); assert.deepEqual(a.summary.getState(), state);
+  assert.equal(a.get("summary-plot").children[0], plot); assert.equal(JSON.stringify(a.get("summary-achievement-cards").children), achieved);
+  assert.equal(a.scrolls.length, scrolls); assert.equal(a.store.raw, before); assert.equal(JSON.stringify([...a.store.extras]), extras); assert.equal(a.store.writes, 0);
+  a.get("summary-next").click(); assert.equal(a.summary.getState().range.end, "2041-05-12");
+});
 const text = (element) => [element.textContent, ...element.children.map(text)].join(element.className === "summary-card-value" ? "" : " ");
 const weeks = (a) => a.get("summary-plot").children[0].children.filter(item => item.attrs?.class === "summary-week");
 const achievement = (a, field) => a.get("summary-achievement-cards").children.find(item => item.dataset.field === field);
@@ -132,25 +187,30 @@ test("summary mounts as a fourth read-only tab, with six selectable cards and cu
   assert.equal(a.store.raw, before); assert.equal(a.store.writes, 0); assert.equal(a.store.ackWrites, 0);
 });
 
-test("each card selects the same single four-week graph, including no-data weeks and saved zeros", () => {
+test("each card in either period selects the same four-week graph and scrolls to the card group after rendering", () => {
   const a = app(); a.openSummary();
-  const scrolls = []; a.get("summary-heading").scrollIntoView = options => scrolls.push(options);
+  const scrolls = [], headingScrolls = [];
+  a.get("summary-cards").scrollIntoView = options => { assert.equal(a.get("summary-plot").dataset.field, a.summary.getState().field); scrolls.push(options); };
+  a.get("summary-heading").scrollIntoView = options => headingScrolls.push(options);
   const titles = { squat: "スクワット・週ごとの合計 (回)", march: "足踏み・週ごとの合計 (回)", plank: "プランク・週ごとの合計 (秒)",
     standing: "スタンディング・週ごとの平均 (H)", walkSteps: "散歩歩数・週ごとの合計 (歩)", distance: "散歩距離・週ごとの合計 (km)" };
-  for (const field of ["squat", "march", "plank", "standing", "walkSteps", "distance"]) {
-    card(a, field).click(); assert.equal(a.summary.getState().field, field);
-    assert.equal(a.get("summary-chart-heading").textContent, titles[field]);
-    assert.equal(card(a, field).children[0].children[0].textContent, titles[field].split("・")[0] + (field === "standing" ? "平均" : "合計"));
-    assert.equal(a.get("summary-plot").dataset.field, field);
-    assert.equal(a.get("summary-plot").children.length, 1); assert.equal(weeks(a).length, 4);
-    assert.equal(a.get("summary-cards").children.filter(item => item.attrs["aria-pressed"] === "true").length, 1);
-    assert.deepEqual(scrolls.at(-1), { block: "start", behavior: "auto" });
+  for (const mode of ["week", "4w"]) {
+    const count = scrolls.length; a.get(`summary-card-${mode}`).click(); assert.equal(scrolls.length, count);
+    for (const field of ["squat", "march", "plank", "standing", "walkSteps", "distance"]) {
+      card(a, field).click(); assert.equal(a.summary.getState().field, field);
+      assert.equal(a.get("summary-chart-heading").textContent, titles[field]);
+      assert.equal(card(a, field).children[0].children[0].textContent, titles[field].split("・")[0] + (field === "standing" ? "平均" : "合計"));
+      assert.equal(a.get("summary-plot").dataset.field, field);
+      assert.equal(a.get("summary-plot").children.length, 1); assert.equal(weeks(a).length, 4);
+      assert.equal(a.get("summary-cards").children.filter(item => item.attrs["aria-pressed"] === "true").length, 1);
+      assert.deepEqual(scrolls.at(-1), { block: "start", behavior: "auto" });
+    }
   }
-  assert.equal(scrolls.length, 6);
+  assert.equal(scrolls.length, 12); assert.equal(headingScrolls.length, 0);
   assert.deepEqual(Array.from(weeks(a), item => item.attrs["data-value"]), ["1.2", "0", "", ""]);
   assert.match(text(a.get("summary-plot")), /データなし/); assert.equal(a.store.writes, 0);
-  a.summary.refresh(); assert.equal(scrolls.length, 6);
-  a.get("summary-previous").click(); assert.equal(scrolls.length, 7);
+  a.summary.refresh(); assert.equal(scrolls.length, 12);
+  a.get("summary-previous").click(); assert.equal(scrolls.length, 12); assert.equal(headingScrolls.length, 1);
 });
 
 test("only actual button and swipe period changes scroll to the heading after rendering", () => {
@@ -218,11 +278,11 @@ test("latest returns from past periods using today's local date and synchronizes
 test("aggregation and chart notes stay below the graph inside the existing closed details without duplicate notes", () => {
   const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
   const section = html.slice(html.indexOf('<section id="summary-screen"'), html.indexOf('<section id="settings-screen"'));
-  assert.match(section, /class="summary-period-heading">\s*<p id="summary-range"[^>]*><\/p>\s*<p id="summary-saved-days"><\/p>\s*<\/div>\s*<div class="summary-period-actions"/);
+  assert.match(section, /class="summary-period-heading">\s*<p id="summary-range"[^>]*><\/p>\s*<p id="summary-saved-days"><\/p>\s*<\/div>\s*<div id="summary-period-actions" class="summary-period-actions" hidden/);
   assert.match(section, /id="summary-cards"[\s\S]*?id="summary-plot"[^>]*><\/div>[\s\S]*?id="summary-achievement-cards"[^>]*><\/div>\s*<\/section>\s*<div class="summary-notes">\s*<details class="summary-details">\s*<summary>集計について詳しく<\/summary>\s*<p id="summary-aggregation-note"/);
-  assert.match(section, /項目横の\(7\/28\)は、運動5項目では実施日数、スタンディングでは平均対象日数です。未記録と0は区別します。/);
+  assert.match(section, /項目横の\(○\/7\)・\(○\/28\)は、運動5項目では実施日数、スタンディングでは平均対象日数です。未記録と0は区別します。/);
   const details = /<details class="summary-details">([\s\S]*?)<\/details>/.exec(section)[1];
-  for (const note of ["項目横の(7/28)は、運動5項目では実施日数、スタンディングでは平均対象日数です。未記録と0は区別します。", "保存済みの記録だけを集計します。目標は現在の設定値を過去の期間にも適用します。散歩はアプリに記録した分だけが対象です。"]) {
+  for (const note of ["項目横の(○/7)・(○/28)は、運動5項目では実施日数、スタンディングでは平均対象日数です。未記録と0は区別します。", "保存済みの記録だけを集計します。目標は現在の設定値を過去の期間にも適用します。散歩はアプリに記録した分だけが対象です。"]) {
     assert(details.includes(note)); assert.equal(section.split(note).length - 1, 1);
   }
   assert.match(section, /保存された有効値だけを集計し、空欄・欠落・不正値は除外/);

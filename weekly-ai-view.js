@@ -29,7 +29,7 @@
       const range = { start: data.points[0].date, end: data.points.at(-1).date }, values = data.points.map(p => p.value);
       const low = Math.min(...values), high = Math.max(...values), margin = Math.max(10, high - low) * .1 + Math.max(0, 10 - (high - low)) / 2;
       const axis = { min: Math.max(0, low - margin), max: Math.min(100, high + margin) };
-      const step = axis.max - axis.min > 50 ? 20 : axis.max - axis.min > 20 ? 10 : 5;
+      const step = 5;
       const xy = p => ({ x: left + calendar.calculateX(p.date, range, width - left - 12), y: top + calendar.calculateY(p.value, axis, height) });
       const svg = svgNode("svg", { viewBox: `0 0 ${width} 224`, width, height: 224, role: "group", "aria-label": "週間AI評価。緑の点付き線は評価点数、紫の補助線は4週間移動平均。点を選ぶと総評を表示します。" });
       for (let tick = Math.ceil(axis.min / step) * step; tick <= axis.max; tick += step) {

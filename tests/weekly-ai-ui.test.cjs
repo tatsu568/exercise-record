@@ -49,6 +49,21 @@ test("AI errors and canceled previews never save; conflicts default to keep and 
   preview(a, "2041-01-14\t70"); a.get("ai-cancel").click(); assert.equal(a.get("ai-save").disabled, true); assert.equal(a.store.aiWrites, 1);
 });
 
+test("AI vertical ticks stay five points apart within the automatic 0-100 range and contain scores and average curves", () => {
+  for (const scores of [[74, 92], [0, 4], [96, 100], [0, 100], [80, 80]]) {
+    const a = app({ "2041-01-07": { score: scores[0], comment: "" }, "2041-01-14": { score: scores[1], comment: "" } });
+    a.get("summary-show").click();
+    const ticks = () => descendants(a.get("ai-plot")).filter(e => e.tag === "text" && e.attrs["text-anchor"] === "end").map(e => Number(e.textContent));
+    const before = ticks(); assert.ok(before.length > 0);
+    before.forEach((tick, i) => { assert.ok(tick >= 0 && tick <= 100); assert.equal(tick % 5, 0); if (i) assert.equal(tick - before[i - 1], 5); });
+    for (const p of points(a)) assert.ok(Number(p.attrs.cy) >= 18 && Number(p.attrs.cy) <= 172);
+    const coordinates = paths(a)[0].attrs.d.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi).map(Number);
+    coordinates.forEach((number, i) => { if (i % 2) assert.ok(number >= 18 - 1e-10 && number <= 172 + 1e-10); });
+    a.get("ai-moving-average").checked = false; a.get("ai-moving-average").fire("change"); assert.deepEqual(ticks(), before);
+    assert.equal(a.store.aiWrites, 0); assert.equal(a.store.writes, 0);
+  }
+});
+
 test("average toggles measure the attached chart and replace it without a transient empty plot", () => {
   const a = app({ "2041-01-07": { score: 70, comment: "first" }, "2041-01-14": { score: 80, comment: "second" } });
   a.get("summary-show").click();

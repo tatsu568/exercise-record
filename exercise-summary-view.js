@@ -25,7 +25,7 @@
   function mount({ document, window, storage, navigation, settings = settingsModel.createStore(storage), today = () => calendar.localDateString(new Date()) }) {
     const get = (id) => document.querySelector(`#${id}`);
     const state = { open: false, range: null, latest: null, field: "squat", data: null, error: "", goals: {}, goalError: "",
-      achievementMode: "4w", allTime: null };
+      cardMode: "week", lastWeek: null, achievementMode: "4w", allTime: null };
     const cards = {}, achievementCards = {};
     const node = (tag, text, className) => {
       const item = document.createElement(tag);
@@ -47,6 +47,7 @@
       const goal = state.goals[state.field], unit = unitText(metric);
       plot.dataset.field = state.field;
       get("summary-chart-heading").textContent = `${metric.label.replace(/(合計|平均)$/, "")}・週ごとの${metric.field === "standing" ? "平均" : "合計"} (${unit})`;
+      get("summary-chart-range").textContent = state.range ? `4週間：${rangeText(state.range)}` : "";
       plot.replaceChildren();
       if (!state.data) { plot.append(node("p", "保存データを確認できないため、表示できません")); return; }
       const rows = state.data.weeks.map((week) => ({ ...week, result: week.metrics[state.field] }));
@@ -104,33 +105,41 @@
       }
     }
 
-    function render() {
-      if (state.range) get("summary-range").textContent = rangeText(state.range);
-      get("summary-saved-days").textContent = state.data ? `(${state.data.current.savedDays}/28)` : "(—/28)";
-      get("summary-saved-days").setAttribute("aria-label", state.data ? `28日間のうち保存済み記録${state.data.current.savedDays}日` : "記録日数を確認できません");
+    function renderCards() {
+      const isWeek = state.cardMode === "week", daysInPeriod = isWeek ? 7 : 28;
+      const current = isWeek ? state.lastWeek : state.data?.current, range = isWeek ? state.lastWeek?.range : state.range;
+      for (const mode of ["week", "4w"]) get(`summary-card-${mode}`).setAttribute("aria-pressed", String(state.cardMode === mode));
+      get("summary-period-actions").hidden = isWeek;
+      get("summary-comparison-range").hidden = isWeek;
+      get("summary-range").textContent = range ? rangeText(range) : "";
+      get("summary-saved-days").textContent = current ? `(${current.savedDays}/${daysInPeriod})` : `(—/${daysInPeriod})`;
+      get("summary-saved-days").setAttribute("aria-label", current ? `${daysInPeriod}日間のうち保存済み記録${current.savedDays}日` : "記録日数を確認できません");
       get("summary-comparison-range").textContent = state.data ? `比較：${rangeText(state.data.previous.range)}` : "";
-      const excluded = state.data ? Object.values(state.data.current.metrics).reduce((count, metric) => count + metric.invalid, 0) : 0;
-      const previousExcluded = state.data ? Object.values(state.data.previous.metrics).reduce((count, metric) => count + metric.invalid, 0) : 0;
-      get("summary-status").textContent = state.error || (excluded || previousExcluded ? `不正な値は集計から除外しています（今回${excluded}項目・前4週${previousExcluded}項目）。保存値は変更していません。` : "");
+      const excluded = current ? Object.values(current.metrics).reduce((count, metric) => count + metric.invalid, 0) : 0;
+      const previousExcluded = !isWeek && state.data ? Object.values(state.data.previous.metrics).reduce((count, metric) => count + metric.invalid, 0) : 0;
+      get("summary-status").textContent = state.error || (excluded || previousExcluded ? `不正な値は集計から除外しています（今回${excluded}項目${isWeek ? "" : `・前4週${previousExcluded}項目`}）。保存値は変更していません。` : "");
       get("summary-status").dataset.error = String(Boolean(state.error));
       get("summary-goal-status").textContent = state.goalError;
-      get("summary-previous").disabled = !state.range || !state.latest || !model.movePeriod(state.range, -1, state.latest);
-      get("summary-next").disabled = !state.range || !state.latest || !model.movePeriod(state.range, 1, state.latest);
-      get("summary-latest").disabled = !state.range || !state.latest || state.range.end === state.latest.end;
+      get("summary-previous").disabled = isWeek || !state.range || !state.latest || !model.movePeriod(state.range, -1, state.latest);
+      get("summary-next").disabled = isWeek || !state.range || !state.latest || !model.movePeriod(state.range, 1, state.latest);
+      get("summary-latest").disabled = isWeek || !state.range || !state.latest || state.range.end === state.latest.end;
       for (const item of model.METRICS) {
-        const { field } = item, unit = unitText(item), card = cards[field], metric = state.data?.current.metrics[field];
-        const progress = model.goalProgress(field, metric, state.goals[field]);
+        const { field } = item, unit = unitText(item), card = cards[field], metric = current?.metrics[field];
+        const progress = model.goalProgress(field, metric, state.goals[field], isWeek ? 1 : 4);
         card.button.setAttribute("aria-pressed", String(field === state.field));
         card.number.textContent = !metric ? "表示できません" : metric.value === null ? "データなし" : displayNumber(field, metric.value);
         card.unit.textContent = metric && metric.value !== null ? unit : "";
         const days = field === "standing" ? metric?.count : metric?.performedDays, dayLabel = field === "standing" ? "平均対象日数" : "実施日数";
-        card.count.textContent = metric ? `(${days}/28)` : "(—/28)";
-        card.count.setAttribute("aria-label", metric ? `28日間のうち${dayLabel}${days}日` : `${dayLabel}を確認できません`);
+        card.count.textContent = metric ? `(${days}/${daysInPeriod})` : `(—/${daysInPeriod})`;
+        card.count.setAttribute("aria-label", metric ? `${daysInPeriod}日間のうち${dayLabel}${days}日` : `${dayLabel}を確認できません`);
         const difference = progress.difference;
         card.difference.textContent = progress.status === "ready" ? `目標${difference === "0" ? "±0" : difference.startsWith("-") ? "−" + displayNumber(field, difference.slice(1)) : "+" + displayNumber(field, difference)}` : "";
         card.change.dataset.achieved = String(progress.status === "ready" && progress.achieved);
         card.change.textContent = progress.status === "unset" ? "目標未設定" : progress.status === "no-data" ? "達成率 判定不可" : `達成率 ${progress.rate}%`;
       }
+    }
+    function render() {
+      renderCards();
       renderPlot();
       renderAchievements();
     }
@@ -143,8 +152,9 @@
         state.latest = latest;
         const records = history.read(storage.getItem(KEY));
         state.data = model.buildSummary(records, state.range);
+        state.lastWeek = model.aggregate(records, { start: calendar.addDays(latest.end, -6), end: latest.end });
         state.allTime = model.allTimeAchievements(records, latest, state.goals); state.error = "";
-      } catch (error) { state.data = null; state.allTime = null; state.error = error.message || "保存データを読み取れません。保存内容は変更していません。"; }
+      } catch (error) { state.data = null; state.lastWeek = null; state.allTime = null; state.error = error.message || "保存データを読み取れません。保存内容は変更していません。"; }
       render();
     }
     function scrollToHeading() {
@@ -167,17 +177,21 @@
       cards[metric.field] = { button, number, unit, difference, change, count };
       button.addEventListener("click", () => {
         state.field = metric.field; render();
-        scrollToHeading();
+        get("summary-cards").scrollIntoView({ block: "start", behavior: "auto" });
       });
     }
     for (const [id, direction] of [["summary-previous", -1], ["summary-next", 1]]) get(id).addEventListener("click", () => {
-      if (!state.range || !state.latest) return;
+      if (state.cardMode !== "4w" || !state.range || !state.latest) return;
       const next = model.movePeriod(state.range, direction, state.latest);
       if (next) changePeriod(next);
     });
     get("summary-latest").addEventListener("click", () => {
-      if (!state.open) return;
+      if (!state.open || state.cardMode !== "4w") return;
       changePeriod(null);
+    });
+    for (const mode of ["week", "4w"]) get(`summary-card-${mode}`).addEventListener("click", () => {
+      if (state.cardMode === mode) return;
+      state.cardMode = mode; renderCards();
     });
     for (const metric of model.METRICS) {
       const element = node("div", undefined, "summary-weekly-card"); element.dataset.field = metric.field;
@@ -191,7 +205,7 @@
     for (const mode of ["4w", "all"]) get(`summary-achievement-${mode}`).addEventListener("click", () => {
       state.achievementMode = mode; renderAchievements();
     });
-    navigation.connectPeriodSwipe({ element: get("summary-screen"), window, enabled: () => state.open && !state.error,
+    navigation.connectPeriodSwipe({ element: get("summary-screen"), window, enabled: () => state.open && state.cardMode === "4w" && !state.error,
       move: (direction) => get(direction < 0 ? "summary-previous" : "summary-next").click() });
     navigation.register("summary", { heading: "summary-heading", onShow() { state.open = true; refresh(); }, onHide() { state.open = false; } });
     window.addEventListener("storage", (event) => { if (event.key === KEY || event.key === settingsModel.KEYS.exerciseGoals || event.key === null) refresh(); });

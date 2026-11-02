@@ -157,6 +157,7 @@ button { touch-action: manipulation; }
 .summary-period-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 8px; margin-bottom: 8px; }
 .summary-range { min-width: 0; margin: 0; font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
 .summary-period-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) 48px; gap: 6px; }
+.summary-period-actions[hidden] { display: none; }
 .summary-period-actions button { min-width: 0; min-height: 48px; }
 .summary-period-actions button:disabled { opacity: .45; }
 #summary-saved-days { margin: 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
@@ -167,6 +168,7 @@ button { touch-action: manipulation; }
 #summary-status:empty { display: none; }
 #summary-status[data-error="true"] { color: #9a3b17; }
 .summary-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+#summary-cards { scroll-margin-top: 8px; }
 .summary-card, #summary-plot { --metric-color: var(--accent); --metric-soft: var(--accent-soft); }
 .summary-card[data-field="plank"], .summary-card[data-field="standing"], #summary-plot[data-field="plank"], #summary-plot[data-field="standing"] { --metric-color: #2563eb; --metric-soft: #eff6ff; }
 .summary-card[data-field="walkSteps"], .summary-card[data-field="distance"], #summary-plot[data-field="walkSteps"], #summary-plot[data-field="distance"] { --metric-color: #85641f; --metric-soft: #faf4e7; }
