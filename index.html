@@ -76,6 +76,29 @@
         <label class="field"><span>距離</span><span class="input-with-unit"><input id="distance" type="number" inputmode="decimal" enterkeyhint="next" min="0" step="any" placeholder="—"><span>km</span></span></label>
         <label class="field"><span>歩数</span><span class="input-with-unit"><input id="walk-steps" type="number" inputmode="numeric" enterkeyhint="done" min="0" step="1" placeholder="—"><span>歩</span></span></label>
       </div>
+      <details class="walk-ocr">
+        <summary>Mi Fitnessの散歩画像を読み取る</summary>
+        <label class="field"><span>ウォーキング詳細画像</span><input id="walk-ocr-file" type="file" accept="image/*"></label>
+        <div id="walk-ocr-paste" contenteditable="true" inputmode="none" spellcheck="false" role="textbox" aria-label="画像を貼り付け" aria-describedby="walk-ocr-paste-help"></div>
+        <p id="walk-ocr-paste-help" class="history-help">コピーした画像は、欄を長押しして「ペースト」。</p>
+        <p id="walk-ocr-status" class="history-help" role="status"></p>
+        <div id="walk-ocr-preview" hidden>
+          <p class="history-help">読み取った値を確認・修正してください。日付が違う場合は、上の日付選択で対象日へ変更してから加算してください。加算後は通常の入力と同様に自動保存されます。</p>
+          <label class="field"><span>散歩した日付</span><input id="walk-ocr-date" type="date"></label>
+          <div class="field-row">
+            <label class="field"><span>時間・分</span><input id="walk-ocr-minutes" type="number" min="0" step="1" inputmode="numeric"></label>
+            <label class="field"><span>時間・秒</span><input id="walk-ocr-seconds" type="number" min="0" max="59" step="1" inputmode="numeric"></label>
+          </div>
+          <div class="field-row">
+            <label class="field"><span>距離 (km)</span><input id="walk-ocr-distance" type="number" min="0" step="any" inputmode="decimal"></label>
+            <label class="field"><span>歩数</span><input id="walk-ocr-steps" type="number" min="0" step="1" inputmode="numeric"></label>
+          </div>
+          <div class="backup-grid">
+            <button id="walk-ocr-cancel" class="button backup-button" type="button">キャンセル</button>
+            <button id="walk-ocr-add" class="button backup-button" type="button">加算する</button>
+          </div>
+        </div>
+      </details>
     </section>
 
     <section class="card" aria-labelledby="body-heading">
@@ -93,12 +116,18 @@
     <section class="card copy-card" aria-labelledby="copy-heading">
       <h2 id="copy-heading">コピー</h2>
       <div class="copy-grid">
-        <button id="copy-exercise" class="button button-secondary" type="button">運動データコピー</button>
-        <button id="copy-body" class="button button-secondary" type="button">身体データコピー</button>
         <button id="copy-weekly" class="button button-weekly" type="button">週間運動コピー</button>
         <button id="copy-weekly-body" class="button button-secondary button-weekly-body" type="button">週間身体コピー</button>
+        <button id="copy-walk-quest" class="button button-secondary" type="button">WALK QUEST用コピー</button>
       </div>
       <p id="weekly-period" class="weekly-period" aria-live="polite"></p>
+      <details class="numbers-copy">
+        <summary>Numbers用</summary>
+        <div class="copy-grid">
+          <button id="copy-exercise" class="button button-secondary" type="button">運動データコピー</button>
+          <button id="copy-body" class="button button-secondary" type="button">身体データコピー</button>
+        </div>
+      </details>
       <div class="backup-actions">
         <div class="backup-grid">
         <button id="backup-export" class="button backup-button" type="button">バックアップ保存</button>
@@ -395,6 +424,7 @@
   <script src="record-save.js" defer></script>
   <script src="record-transfer.js" defer></script>
   <script src="numbers-csv.js" defer></script>
+  <script src="walk-import.js" defer></script>
   <script src="script.js" defer></script>
   <script src="record-history.js?v=0.3-history-separators-20261021" defer></script>
   <script src="body-graph.js" defer></script>

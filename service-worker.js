@@ -1,9 +1,11 @@
 "use strict";
 
-const CACHE_NAME = "exercise-record-v39";
+const CACHE_NAME = "exercise-record-v41";
 const APP_FILES = [
   "./", "./index.html", "./style.css?v=0.4-gear-optical-20261024-up2",
-  "./record-save.js", "./record-transfer.js", "./numbers-csv.js", "./script.js",
+  "./record-save.js", "./record-transfer.js", "./numbers-csv.js", "./walk-import.js", "./script.js",
+  "./vendor/walk-ocr/tesseract.esm.min.js", "./vendor/walk-ocr/worker.min.js",
+  "./vendor/walk-ocr/tesseract-core-lstm.wasm.js", "./vendor/walk-ocr/eng.traineddata.gz",
   "./record-history.js?v=0.3-history-separators-20261021", "./body-graph.js",
   "./measurement-attention.js", "./attention-acknowledgements.js", "./app-navigation.js",
   "./history-view.js?v=0.3-history-separators-20261021", "./app-settings.js", "./settings-view.js",

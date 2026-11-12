@@ -101,7 +101,11 @@
     updateDateSelection();
     try {
       // Viewing an untouched day must not turn its defaults into a saved record.
-      if ((hasUnsavedChanges || saveJob) && !await saveCurrentEntry()) return false;
+      if ((hasUnsavedChanges || saveJob) && !await saveCurrentEntry()) {
+        const reason = document.querySelector("#save-status").textContent;
+        showToast(`日付を変更できません。入力は現在の日付に残っています。 ${reason}`, 5000);
+        return false;
+      }
       entries = readEntries();
       if (storageLoadError) return false;
       loadDate(date);
@@ -947,6 +951,96 @@
     }
   }
 
+  async function copyWalkQuest() {
+    if (navigationPending || FIELDS.date.value !== activeDate) {
+      showToast("日付変更を確定または取り消してからコピーしてください");
+      return;
+    }
+    try {
+      if (FIELDS.distance.validity?.badInput) throw new Error("invalid distance");
+      const text = WalkImport.questText(activeDate, FIELDS.distance.value, currentEntry.squat, currentEntry.plank);
+      if (window.isSecureContext && navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+      else if (!legacyCopy(text)) throw new Error("clipboard unavailable");
+      showToast("WALK QUEST用データをコピーしました");
+    } catch {
+      showToast("コピーできませんでした。入力値またはクリップボードを確認してください", 3200);
+    }
+  }
+
+  function bindWalkImport() {
+    const get = id => document.querySelector(`#walk-ocr-${id}`);
+    const file = get("file"), preview = get("preview"), status = get("status"), add = get("add");
+    const date = get("date");
+    const inputs = { walkMinutes: get("minutes"), walkSeconds: get("seconds"),
+      distance: get("distance"), walkSteps: get("steps") };
+    let controller;
+    function reset(message = "") {
+      controller?.abort();
+      controller = undefined;
+      file.value = "";
+      preview.hidden = true;
+      date.value = "";
+      for (const input of Object.values(inputs)) input.value = "";
+      status.textContent = message;
+    }
+    async function readWalkImage(selected) {
+      if (!selected) return;
+      reset("画像を読み取っています…");
+      controller = new AbortController();
+      const { signal } = controller;
+      preview.hidden = false;
+      add.disabled = true;
+      try {
+        const result = await WalkImport.readImage(selected, validDate, signal);
+        if (signal.aborted) return;
+        date.value = result.date;
+        for (const [key, input] of Object.entries(inputs)) input.value = result[key];
+        status.textContent = Object.values(result).includes("")
+          ? "読み取れなかった項目を入力してください" : "読み取り結果を確認してください";
+      } catch (error) {
+        if (!signal.aborted) status.textContent = error?.message?.match(/[ぁ-んァ-ン一-龯]/)
+          ? error.message : "画像を読み取れませんでした。画像を選び直すか、各項目を手入力してください";
+      } finally {
+        if (!signal.aborted) add.disabled = false;
+      }
+    }
+    file.addEventListener("change", () => readWalkImage(file.files?.[0]));
+    const paste = get("paste");
+    paste.addEventListener("beforeinput", event => event.preventDefault());
+    paste.addEventListener("paste", event => {
+      event.preventDefault();
+      const data = event.clipboardData;
+      const image = Array.from(data?.files || []).find(file => file.type.startsWith("image/"))
+        || Array.from(data?.items || []).find(item => item.kind === "file" && item.type.startsWith("image/"))?.getAsFile();
+      if (!image) {
+        status.textContent = "画像をコピーしてから貼り付けてください";
+        return;
+      }
+      return readWalkImage(image);
+    });
+    get("cancel").addEventListener("click", () => reset());
+    add.addEventListener("click", () => {
+      if (preview.hidden || add.disabled || restoreSession || historyBrowsing || navigationPending) return;
+      if (!validDate(date.value) || date.value !== activeDate || FIELDS.date.value !== activeDate) {
+        status.textContent = `散歩の日付と記録の日付（${activeDate}）を一致させてください`;
+        return;
+      }
+      try {
+        const keys = Object.keys(inputs);
+        if (keys.some(key => FIELDS[key].validity?.badInput)) throw new Error("既存の散歩入力値を確認してください");
+        const added = WalkImport.addWalk(
+          Object.fromEntries(keys.map(key => [key, FIELDS[key].value])),
+          Object.fromEntries(keys.map(key => [key, inputs[key].value]))
+        );
+        for (const key of keys) FIELDS[key].value = added[key];
+        reset(`${activeDate} の散歩入力欄に加算しました`);
+        saveCurrentEntry();
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    });
+  }
+
   function exerciseRow() {
     const work = currentEntry.work;
     return [
@@ -1142,6 +1236,8 @@
     document.querySelector("#copy-body").addEventListener("click", () => copyHtmlTable(bodyRow()));
     document.querySelector("#copy-weekly").addEventListener("click", copyWeeklyExercise);
     document.querySelector("#copy-weekly-body").addEventListener("click", copyWeeklyBody);
+    document.querySelector("#copy-walk-quest").addEventListener("click", copyWalkQuest);
+    bindWalkImport();
     document.querySelector("#backup-export").addEventListener("click", saveBackup);
     document.querySelector("#save-retry").addEventListener("click", () => {
       if (!saveJob && !storageLoadError && !["STALE", "VERIFY_FAILED", "INVALID_STORAGE"].includes(saveFailure?.code)) return saveCurrentEntry();

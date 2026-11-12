@@ -6,6 +6,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
 const { File } = require("node:buffer");
 const transfer = require("../record-transfer.js"), csv = require("../numbers-csv.js"), view = require("../history-view.js"), history = require("../record-history.js");
+const walkImport = require("../walk-import.js");
 const root = path.join(__dirname, "..");
 const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 const source = fs.readFileSync(path.join(root, "script.js"), "utf8").replace(/\}\)\(\);\s*$/, "globalThis.hooks = { loadDate, saveCurrentEntry, switchDate, previewBackup, prepareRestoreBackup, applyRestore, cancelRestore };\n})();");
@@ -47,6 +48,7 @@ function app(records = {}, today = "2032-10-19", browserBoot = false, secureCont
     serviceWorker: { register: async (url) => { registrations.push(url); } } };
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [today + "T12:00:00"])); } }
   const context = { window, document, navigator, localStorage: store, RecordTransfer: transfer, RecordSave, AbortController, NumbersCsv: csv, HTMLInputElement: Input,
+    WalkImport: { ...walkImport, async readImage(file) { if (file.error) throw Error("decode"); return file.result; } },
     Date: Clock, File, Blob, ClipboardItem: class { constructor(data) { this.data = data; } }, console: { warn() {}, error() {} }, setTimeout() { return 1; }, clearTimeout() {} };
   vm.createContext(context); vm.runInContext(source, context);
   let screen;
@@ -67,6 +69,120 @@ function jump(instance, year, month) {
   instance.get("history-month-go").click();
 }
 function text(node) { return [node.textContent, ...node.children.map(text)].join("\n"); }
+test("walk OCR waits for confirmation, checks the selected day, and only saves the summed walk fields", async () => {
+  const today = "2032-10-19", other = "2032-10-18";
+  const records = { [today]: day({ walkMinutes: "30", walkSeconds: "58", distance: "2", walkSteps: "3000", squat: 15 }),
+    [other]: day({ plank: 30 }) };
+  const instance = app(records, today);
+  const get = instance.get, file = get("walk-ocr-file");
+  const read = async (date) => {
+    file.files = [{ result: { date, walkMinutes: "20", walkSeconds: "5", distance: "1.5", walkSteps: "2000" } }];
+    await file.events.change();
+  };
+  await read(other);
+  get("walk-ocr-add").click();
+  assert.equal(instance.store.writes, 0);
+  assert.equal(get("distance").value, "2");
+  get("walk-ocr-cancel").click();
+  assert.equal(get("walk-ocr-preview").hidden, true);
+  file.files = [{ error: true }];
+  await file.events.change();
+  assert.equal(get("walk-ocr-date").value, "");
+  assert.equal(instance.store.writes, 0);
+  await read(today);
+  get("walk-ocr-distance").value = "1.56";
+  get("walk-ocr-add").click();
+  get("walk-ocr-add").click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(instance.store.writes, 1);
+  assert.deepEqual(JSON.parse(instance.store.raw), {
+    ...records, [today]: { ...records[today], walkMinutes: "51", walkSeconds: "3", distance: "3.56", walkSteps: "5000" }
+  });
+});
+
+async function swipeInputDate(instance, delta) {
+  instance.window.innerWidth = 390;
+  const events = instance.get("input-screen").events;
+  events.touchstart({ touches: [{ clientX: 180, clientY: 120 }] });
+  await events.touchend({ changedTouches: [{ clientX: 180 + delta, clientY: 120 }] });
+}
+
+test("date picker and both swipes still change the active date with a pasted OCR preview open", async () => {
+  const instance = app(), get = instance.get;
+  const image = { type: "image/png", result: { date: "2032-10-18", walkMinutes: "20", walkSeconds: "5", distance: "1.5", walkSteps: "2000" } };
+  await get("walk-ocr-paste").events.paste({ clipboardData: { files: [image] }, preventDefault() {} });
+  get("record-date").value = "2032-10-18";
+  get("record-date").events.change();
+  await get("date-apply").click();
+  assert.equal(get("date-apply").hidden, true);
+  await swipeInputDate(instance, -90);
+  assert.equal(get("record-date").value, "2032-10-19");
+  await swipeInputDate(instance, 90);
+  assert.equal(get("record-date").value, "2032-10-18");
+  assert.equal(get("walk-ocr-date").value, "2032-10-18");
+  assert.equal(instance.store.writes, 0);
+});
+
+test("both date controls explain a blocked switch when an edit cannot be saved on HTTP", async () => {
+  const instance = app({}, "2032-10-19", false, false), get = instance.get;
+  get("distance").value = "2";
+  await instance.hooks.saveCurrentEntry();
+  get("record-date").value = "2032-10-18";
+  get("record-date").events.change();
+  await get("date-apply").click();
+  assert.match(get("toast").textContent, /日付を変更できません.*HTTPS/);
+  get("toast").textContent = "";
+  await swipeInputDate(instance, 90);
+  assert.match(get("toast").textContent, /日付を変更できません.*HTTPS/);
+  assert.match(get("date-status").textContent, /2032\/10\/19/);
+  assert.equal(get("distance").value, "2");
+  assert.equal(instance.store.writes, 0);
+});
+
+test("walk OCR accepts pasted image files and clipboard items, ignores text, and leaves records unchanged on cancel", async () => {
+  const instance = app(), get = instance.get, before = instance.store.raw;
+  const image = { type: "image/png", result: { date: "2032-10-19", walkMinutes: "20", walkSeconds: "5", distance: "1.5", walkSteps: "2000" } };
+  const paste = async clipboardData => {
+    let prevented = false;
+    await get("walk-ocr-paste").events.paste({ clipboardData, preventDefault() { prevented = true; } });
+    assert.equal(prevented, true);
+  };
+  await paste({ items: [{ kind: "string", type: "text/plain" }] });
+  assert.equal(get("walk-ocr-preview").hidden, true);
+  for (const data of [{ files: [image] }, { items: [{ kind: "file", type: "image/png", getAsFile: () => image }] }]) {
+    await paste(data);
+    assert.equal(get("walk-ocr-preview").hidden, false);
+    assert.equal(get("walk-ocr-date").value, "2032-10-19");
+    assert.equal(get("walk-ocr-distance").value, "1.5");
+    get("walk-ocr-cancel").click();
+    assert.equal(get("walk-ocr-preview").hidden, true);
+  }
+  assert.equal(instance.store.writes, 0);
+  assert.equal(instance.store.raw, before);
+});
+
+test("WALK QUEST copies the active day and unsaved distance with original units without writing", async () => {
+  const today = "2032-10-19", other = "2032-10-18";
+  const instance = app({ [today]: day({ squat: 15, plank: 90 }) }, today);
+  instance.get("distance").value = "2.801234";
+  await instance.get("copy-walk-quest").click();
+  assert.deepEqual(JSON.parse(instance.clipboard[0]), { type: "walk-quest-daily-v1", date: today, walkKm: 2.801234, squats: 15, plankSeconds: 90 });
+  instance.get("record-date").value = other;
+  await instance.get("copy-walk-quest").click();
+  assert.equal(instance.clipboard.length, 1);
+  await instance.hooks.switchDate(other);
+  await instance.get("copy-walk-quest").click();
+  assert.deepEqual(JSON.parse(instance.clipboard[1]), { type: "walk-quest-daily-v1", date: other, walkKm: 0, squats: 0, plankSeconds: 0 });
+  assert.equal(instance.store.writes, 0);
+});
+
+test("walk OCR keeps uncertain readings blank and parses the screenshot's HH:MM:SS duration", () => {
+  const validDate = date => { try { transfer.validateRecordsMap({ [date]: {} }); return true; } catch { return false; } };
+  assert.deepEqual(walkImport.parseReadings({ date: "2026/11/12 19:01", duration: "01:27:05", distance: "2.06", steps: "2,582" }, validDate),
+    { date: "2026-11-12", walkMinutes: "87", walkSeconds: "5", distance: "2.06", walkSteps: "2582" });
+  assert.deepEqual(walkImport.parseReadings({ date: "2026/02/29 19:01", duration: "19:01", distance: "206", steps: "2,58" }, validDate),
+    { date: "", walkMinutes: "", walkSeconds: "", distance: "", walkSteps: "" });
+});
 async function ready(instance) {
   await instance.get("restore-prebackup").click(); instance.get("restore-backup-confirm").checked = true; instance.get("restore-final-confirm").checked = true;
   instance.get("restore-final-confirm").events.change();
@@ -614,7 +730,7 @@ test("an insecure HTTP context does not register the Service Worker", () => {
   }
 });
 
-test("v39 caches every app reference with fresh content, serves offline and replaces only older app caches", async () => {
+test("v41 caches every app reference with fresh content, serves offline and replaces only older app caches", async () => {
   const origin = "https://example.test/exercise-record/", events = {}, saved = new Map(), deleted = [];
   const httpCache = new Map([[new URL("script.js", origin).href, "old public input script"]]);
   const downloads = [];
@@ -637,17 +753,19 @@ test("v39 caches every app reference with fresh content, serves offline and repl
       saved.set(url.href, { ok: true, body });
     }
   } };
-  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v39"); return cache; },
-    keys: async () => ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23", "exercise-record-v24", "exercise-record-v25", "exercise-record-v26", "exercise-record-v27", "exercise-record-v28", "exercise-record-v29", "exercise-record-v30", "exercise-record-v31", "exercise-record-v32", "exercise-record-v33", "exercise-record-v34", "exercise-record-v35", "exercise-record-v36", "exercise-record-v37", "exercise-record-v38", "exercise-record-v39", "other-cache"], delete: async (name) => { deleted.push(name); },
+  const caches = { open: async (name) => { assert.equal(name, "exercise-record-v41"); return cache; },
+    keys: async () => ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23", "exercise-record-v24", "exercise-record-v25", "exercise-record-v26", "exercise-record-v27", "exercise-record-v28", "exercise-record-v29", "exercise-record-v30", "exercise-record-v31", "exercise-record-v32", "exercise-record-v33", "exercise-record-v34", "exercise-record-v35", "exercise-record-v36", "exercise-record-v37", "exercise-record-v38", "exercise-record-v39", "exercise-record-v40", "exercise-record-v41", "other-cache"], delete: async (name) => { deleted.push(name); },
     match: async (request) => saved.get(request.url) };
   const context = { self, caches, URL, Request: WorkerRequest, fetch: async () => { networkCalls++; throw Error("offline"); } };
   Object.defineProperty(context, "localStorage", { get() { assert.fail("Service Worker must not access records"); } });
   vm.runInNewContext(fs.readFileSync(path.join(root, "service-worker.js"), "utf8"), context);
   events.install({ waitUntil: (promise) => { pending = promise; } }); await pending;
   assert.equal(httpCache.get(new URL("script.js", origin).href), fs.readFileSync(path.join(root, "script.js"), "utf8"));
-  assert.equal(downloads.length, 23);
+  assert.equal(downloads.length, 28);
   const refs = [...html.matchAll(/<(?:script|link)\b[^>]*(?:src|href)="([^"]+)"/g)].map((match) => match[1]);
   refs.push("./", "index.html", ...JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8")).icons.map((icon) => icon.src));
+  refs.push("vendor/walk-ocr/tesseract.esm.min.js", "vendor/walk-ocr/worker.min.js",
+    "vendor/walk-ocr/tesseract-core-lstm.wasm.js", "vendor/walk-ocr/eng.traineddata.gz");
   assert.deepEqual(new Set(downloads), new Set(refs.map((reference) => new URL(reference, origin).href)));
   const cssRef = /<link rel="stylesheet" href="([^"]+)"/.exec(html)[1];
   assert.equal(saved.get(new URL(cssRef, origin).href).body, fs.readFileSync(path.join(root, "style.css"), "utf8"));
@@ -660,7 +778,7 @@ test("v39 caches every app reference with fresh content, serves offline and repl
   }
   assert.equal(networkCalls, 0);
   events.activate({ waitUntil: (promise) => { pending = promise; } }); await pending;
-  assert.deepEqual(deleted, ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23", "exercise-record-v24", "exercise-record-v25", "exercise-record-v26", "exercise-record-v27", "exercise-record-v28", "exercise-record-v29", "exercise-record-v30", "exercise-record-v31", "exercise-record-v32", "exercise-record-v33", "exercise-record-v34", "exercise-record-v35", "exercise-record-v36", "exercise-record-v37", "exercise-record-v38"]); assert(skipped && claimed);
+  assert.deepEqual(deleted, ["exercise-record-v16", "exercise-record-v17", "exercise-record-v18", "exercise-record-v19", "exercise-record-v20", "exercise-record-v21", "exercise-record-v22", "exercise-record-v23", "exercise-record-v24", "exercise-record-v25", "exercise-record-v26", "exercise-record-v27", "exercise-record-v28", "exercise-record-v29", "exercise-record-v30", "exercise-record-v31", "exercise-record-v32", "exercise-record-v33", "exercise-record-v34", "exercise-record-v35", "exercise-record-v36", "exercise-record-v37", "exercise-record-v38", "exercise-record-v39", "exercise-record-v40"]); assert(skipped && claimed);
 });
 
 
@@ -792,12 +910,12 @@ test("monthly ASCII formatting does not alter detail warning punctuation or save
   assert.equal(instance.store.raw, before); assert.equal(instance.store.writes, 0);
 });
 
-test("v39 matches the current HTML CSS URL and preserves the history asset identifiers", () => {
+test("v41 matches the current HTML CSS URL and preserves the history asset identifiers", () => {
   const version = "0.3-history-separators-20261021", worker = fs.readFileSync(path.join(root, "service-worker.js"), "utf8");
   for (const file of ["record-history.js", "history-view.js"]) {
     assert(html.includes(`${file}?v=${version}`)); assert(worker.includes(`./${file}?v=${version}`));
   }
   assert(html.includes("style.css?v=0.4-gear-optical-20261024-up2"));
   assert(worker.includes("./style.css?v=0.4-gear-optical-20261024-up2"));
-  assert(worker.includes('const CACHE_NAME = "exercise-record-v39"'));
+  assert(worker.includes('const CACHE_NAME = "exercise-record-v41"'));
 });

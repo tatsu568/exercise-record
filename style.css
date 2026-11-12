@@ -90,6 +90,12 @@ button { touch-action: manipulation; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
 .field-row:first-of-type { margin-top: 0; }
 .field { display: flex; min-width: 0; flex-direction: column; gap: 6px; color: var(--muted); font-size: 13px; font-weight: 550; }
+.walk-ocr { margin-top: 12px; }
+.walk-ocr summary { cursor: pointer; color: var(--accent); }
+.walk-ocr > .field, .walk-ocr .backup-grid { margin-top: 8px; }
+.walk-ocr input { min-width: 0; max-width: 100%; }
+#walk-ocr-paste { min-height: 44px; margin-top: 8px; padding: 9px; border: 1px solid #d9dfda; border-radius: 11px; background: #fff; font-size: 16px; -webkit-user-select: text; user-select: text; }
+#walk-ocr-paste:empty::before { content: "画像を貼り付け"; color: var(--muted); pointer-events: none; }
 .input-with-unit { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
 .input-with-unit input { width: 100%; min-width: 0; height: 46px; padding: 7px 9px; border: 1px solid #d9dfda; border-radius: 11px; background: #fff; color: var(--ink); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .input-with-unit input::placeholder { color: #b6beb8; }
@@ -100,6 +106,9 @@ button { touch-action: manipulation; }
 .button-secondary { border: 1px solid #cfdad2; background: #f7faf7; color: var(--accent); font-size: 13px; }
 .button-weekly, .button-weekly-body { border: 1px solid var(--accent); background: var(--accent); color: white; }
 .weekly-period { margin: 6px 2px 0; color: var(--muted); text-align: center; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.numbers-copy { margin-top: 6px; }
+.numbers-copy > summary { min-height: 44px; padding: 11px 0; color: var(--accent); font-size: 14px; font-weight: 650; cursor: pointer; }
+.numbers-copy .copy-grid { margin-top: 0; }
 .backup-actions { margin-top: 13px; padding-top: 11px; border-top: 1px solid var(--line); }
 .backup-button { width: 100%; min-height: 48px; border: 1px solid #cfdad2; background: #f7faf7; color: var(--accent); font-size: 14px; }
 .backup-note { margin: 6px 2px 0; color: var(--muted); text-align: center; font-size: 11px; line-height: 1.4; }
